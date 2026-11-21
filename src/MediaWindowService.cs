@@ -26,6 +26,7 @@ namespace JWFixMonitor
         private Settings _settings;
         private volatile bool _stopping;
         private volatile bool _forcePlace;
+        private volatile bool _covered;       // in TV c'è un'altra finestra
         private long _tracked;               // HWND della finestra media già convertita
         private IntPtr _trackedCore;
         private bool _disabledByUs;
@@ -63,6 +64,40 @@ namespace JWFixMonitor
         }
 
         public void Wake() => _wake.Set();
+
+        /// <summary>
+        /// Un'altra finestra è in TV al posto di JW: la finestra media resta agganciata
+        /// ma non viene più rimessa in primo piano. Togliendo la copertura torna davanti.
+        /// </summary>
+        public void SetCovered(bool covered)
+        {
+            _covered = covered;
+            var frame = Tracked;
+            if (covered && frame != IntPtr.Zero && Native.IsWindow(frame))
+            {
+                Native.SetWindowPos(frame, Native.HWND_NOTOPMOST, 0, 0, 0, 0,
+                    Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            }
+
+            if (covered)
+            {
+                Wake();
+            }
+            else
+            {
+                PlaceNow();
+            }
+        }
+
+        public bool Covered => _covered;
+
+        /// <summary>Lo schermo dove va la finestra media (o null se c'è un solo schermo).</summary>
+        public MonitorDesc CurrentTarget()
+        {
+            var frame = Tracked;
+            return Geometry.ChooseMonitor(Native.Monitors(), CurrentSettings().Choice,
+                frame != IntPtr.Zero ? Native.MonitorDeviceOf(frame) : "");
+        }
 
         public void PlaceNow()
         {
@@ -165,6 +200,19 @@ namespace JWFixMonitor
                 _announced = false;
                 _forcePlace = true; // applica sempre bordo e ritaglio alla finestra nuova
                 Interlocked.Exchange(ref _tracked, frame.ToInt64());
+            }
+
+            if (_covered)
+            {
+                // JW resta dietro all'altra finestra finché non si torna a JW
+                if (Native.IsTopMost(frame))
+                {
+                    Native.SetWindowPos(frame, Native.HWND_NOTOPMOST, 0, 0, 0, 0,
+                        Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+                }
+
+                SetStatus("In TV c'è un'altra finestra");
+                return;
             }
 
             Place(frame, s);

@@ -23,6 +23,9 @@ namespace JWFixMonitor
         private readonly ToolStripMenuItem _topMostItem;
         private readonly ToolStripMenuItem _notifyItem;
         private readonly ToolStripMenuItem _startupItem;
+        private readonly TvSwap _swap;
+        private readonly SwapPanel _panel;
+        private readonly Hotkeys _hotkeys;
         private bool _offerReopen;   // l'ultima notifica mostrata propone la riapertura
         private int _reopening;      // 1 mentre la riapertura è in corso
 
@@ -53,6 +56,10 @@ namespace JWFixMonitor
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Sistema di nuovo adesso", null, (s, e) => _service.PlaceNow());
             menu.Items.Add("Riapri finestra media", null, (s, e) => Reopen());
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Cosa va in TV… (clic sull'icona)", null, (s, e) => _panel.ShowPanel());
+            menu.Items.Add("Torna a JW in TV (Ctrl+Alt+J)", null, (s, e) => BackToJw("menu"));
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Apri il registro (log)", null, (s, e) => OpenLog());
             menu.Items.Add("Esci", null, (s, e) => ExitThread());
             menu.Opening += (s, e) => RefreshMenu();
@@ -82,6 +89,20 @@ namespace JWFixMonitor
             };
             _icon.BalloonTipClosed += (s, e) => _offerReopen = false;
 
+            // un'altra finestra in TV al posto di JW: pannello (clic sull'icona) e scorciatoie
+            _swap = new TvSwap(_service);
+            _panel = new SwapPanel(_swap, _service, text => ShowBalloon(text, offerReopen: false, timeoutMs: 5000));
+            _icon.MouseClick += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    _panel.ShowPanel();
+                }
+            };
+            _hotkeys = new Hotkeys();
+            _hotkeys.AddCtrlAlt(Keys.T, SendForegroundToTv);
+            _hotkeys.AddCtrlAlt(Keys.J, () => BackToJw("Ctrl+Alt+J"));
+
             // eventi di Windows: invece di controllare di continuo, mi sveglio quando
             // compare una finestra o quando quella media si sposta o si chiude
             _winEventProc = OnWinEvent;
@@ -91,6 +112,7 @@ namespace JWFixMonitor
                 Native.SetWinEventHook(Native.EVENT_OBJECT_SHOW, Native.EVENT_OBJECT_SHOW, IntPtr.Zero, _winEventProc, 0, 0, hookFlags),
                 Native.SetWinEventHook(Native.EVENT_OBJECT_DESTROY, Native.EVENT_OBJECT_DESTROY, IntPtr.Zero, _winEventProc, 0, 0, hookFlags),
                 Native.SetWinEventHook(Native.EVENT_OBJECT_LOCATIONCHANGE, Native.EVENT_OBJECT_LOCATIONCHANGE, IntPtr.Zero, _winEventProc, 0, 0, hookFlags),
+                Native.SetWinEventHook(Native.EVENT_OBJECT_HIDE, Native.EVENT_OBJECT_HIDE, IntPtr.Zero, _winEventProc, 0, 0, hookFlags),
             };
 
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
@@ -168,8 +190,70 @@ namespace JWFixMonitor
             thread.Start();
         }
 
+        /// <summary>Ctrl+Alt+T: manda in TV la finestra in primo piano.</summary>
+        private void SendForegroundToTv()
+        {
+            var fg = Native.GetForegroundWindow();
+            var root = fg == IntPtr.Zero ? IntPtr.Zero : Native.GetAncestor(fg, Native.GA_ROOT);
+            if (root == IntPtr.Zero || root == _panel.Handle)
+            {
+                _panel.ShowPanel();
+                return;
+            }
+
+            if (!_swap.Send(root, out var error))
+            {
+                ShowBalloon("Non riesco a mandarla in TV: " + error, offerReopen: false, timeoutMs: 5000);
+            }
+
+            _panel.RefreshState();
+        }
+
+        private void BackToJw(string reason)
+        {
+            if (_swap.Current == IntPtr.Zero && !_service.Covered)
+            {
+                ShowBalloon("In TV c'è già JW Library.", offerReopen: false);
+                return;
+            }
+
+            _swap.Restore(reason);
+            if (_panel.Visible)
+            {
+                _panel.RefreshList();
+            }
+        }
+
+        /// <summary>La finestra in TV è stata chiusa o nascosta (es. fine di Zoom): torna JW.</summary>
+        private void OnSwappedWindowGone(IntPtr hwnd)
+        {
+            var timer = new System.Windows.Forms.Timer { Interval = 1000 };
+            timer.Tick += (s, e) =>
+            {
+                timer.Dispose();
+                if (_swap.Current == hwnd && (!Native.IsWindow(hwnd) || !Native.IsWindowVisible(hwnd)))
+                {
+                    _swap.Restore("la finestra in TV è stata chiusa");
+                    ShowBalloon("La finestra in TV è stata chiusa: torna JW Library.", offerReopen: false);
+                    if (_panel.Visible)
+                    {
+                        _panel.RefreshList();
+                    }
+                }
+            };
+            timer.Start();
+        }
+
         protected override void ExitThreadCore()
         {
+            if (_swap.Current != IntPtr.Zero)
+            {
+                _swap.Restore("chiusura");
+            }
+
+            _hotkeys.Dispose();
+            _panel.Dispose();
+
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
 
@@ -194,6 +278,12 @@ namespace JWFixMonitor
         {
             if (idObject != Native.OBJID_WINDOW || idChild != 0 || hwnd == IntPtr.Zero)
             {
+                return;
+            }
+
+            if ((evt == Native.EVENT_OBJECT_DESTROY || evt == Native.EVENT_OBJECT_HIDE) && hwnd == _swap.Current)
+            {
+                OnSwappedWindowGone(hwnd);
                 return;
             }
 

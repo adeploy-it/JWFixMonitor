@@ -5,7 +5,7 @@ using System.Text;
 
 namespace JWFixMonitor
 {
-    internal static class Native
+    internal static partial class Native
     {
         public const int GWL_EXSTYLE = -20;
         public const int WS_EX_TOPMOST = 0x00000008;
