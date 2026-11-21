@@ -357,7 +357,7 @@ namespace JWFixMonitor
         private void Place(IntPtr frame, Settings s)
         {
             var monitors = Native.Monitors();
-            var target = Geometry.ChooseMonitor(monitors, s.TargetDevice, Native.MonitorDeviceOf(frame));
+            var target = Geometry.ChooseMonitor(monitors, s.Choice, Native.MonitorDeviceOf(frame));
 
             if (target == null)
             {

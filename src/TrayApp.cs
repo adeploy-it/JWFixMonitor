@@ -97,7 +97,7 @@ namespace JWFixMonitor
             SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
             Log.Write("JWFixMonitor avviato. Schermi: " + string.Join(", ",
-                Native.Monitors().ConvertAll(m => m.Device + " " + m.Bounds + (m.IsPrimary ? " principale" : ""))));
+                Native.Monitors().ConvertAll(m => m.Device + " " + m.Name + " " + m.Model + " " + m.Bounds + (m.IsPrimary ? " principale" : ""))));
 
             _service.Start();
             RefreshMenu();
@@ -255,29 +255,29 @@ namespace JWFixMonitor
 
             _monitorMenu.DropDownItems.Clear();
 
-            var auto = new ToolStripMenuItem("Automatico (schermo secondario)", null, (s, e) => ChooseMonitor(""))
+            var choice = _settings.Choice;
+            var auto = new ToolStripMenuItem("Automatico (schermo secondario)", null, (s, e) => ChooseMonitor(MonitorChoice.Auto))
             {
-                Checked = string.IsNullOrEmpty(_settings.TargetDevice)
+                Checked = choice.IsAuto
             };
             _monitorMenu.DropDownItems.Add(auto);
             _monitorMenu.DropDownItems.Add(new ToolStripSeparator());
 
-            var found = false;
-            foreach (var m in Native.Monitors())
+            var monitors = Native.Monitors();
+            var chosen = Geometry.FindChosen(monitors, choice);
+            foreach (var m in monitors)
             {
-                var device = m.Device;
-                var selected = string.Equals(device, _settings.TargetDevice, StringComparison.OrdinalIgnoreCase);
-                found |= selected;
-                _monitorMenu.DropDownItems.Add(new ToolStripMenuItem(m.Label, null, (s, e) => ChooseMonitor(device))
+                var pick = MonitorChoice.From(m);
+                _monitorMenu.DropDownItems.Add(new ToolStripMenuItem(m.Label, null, (s, e) => ChooseMonitor(pick))
                 {
-                    Checked = selected
+                    Checked = m == chosen
                 });
             }
 
-            if (!string.IsNullOrEmpty(_settings.TargetDevice) && !found)
+            if (!choice.IsAuto && chosen == null)
             {
                 _monitorMenu.DropDownItems.Add(new ToolStripMenuItem(
-                    "Schermo scelto non collegato (" + _settings.TargetDevice.TrimStart('\\', '.') + ")")
+                    "Schermo scelto non collegato (" + (choice.Device ?? "").TrimStart('\\', '.') + ")")
                 {
                     Enabled = false,
                     Checked = true
@@ -285,9 +285,11 @@ namespace JWFixMonitor
             }
         }
 
-        private void ChooseMonitor(string device)
+        private void ChooseMonitor(MonitorChoice choice)
         {
-            _settings.TargetDevice = device;
+            _settings.Choice = choice;
+            Log.Write(choice.IsAuto ? "Schermo media: automatico"
+                : $"Schermo media scelto: {choice.Device} {choice.Model} {choice.Width}x{choice.Height}");
             Apply();
         }
 

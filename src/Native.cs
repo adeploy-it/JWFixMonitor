@@ -278,7 +278,118 @@ namespace JWFixMonitor
                 return true;
             }, IntPtr.Zero);
 
+            try
+            {
+                var ids = MonitorIdentities();
+                foreach (var m in list)
+                {
+                    if (ids.TryGetValue(m.Device, out var id))
+                    {
+                        m.Path = id.Path;
+                        m.Model = Geometry.ModelOf(id.Path);
+                        m.Name = id.Name;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("Nomi dei monitor non disponibili: " + ex.Message);
+            }
+
             return Geometry.Number(list);
+        }
+
+        // ---------------- DisplayConfig: nome e percorso dei monitor ----------------
+
+        private const uint QDC_ONLY_ACTIVE_PATHS = 2;
+        private const uint DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 1;
+        private const uint DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME = 2;
+        private const int PathInfoSize = 72, ModeInfoSize = 64;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LUID { public uint Low; public int High; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DISPLAYCONFIG_DEVICE_INFO_HEADER { public uint type; public uint size; public LUID adapterId; public uint id; }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct DISPLAYCONFIG_SOURCE_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string viewGdiDeviceName;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct DISPLAYCONFIG_TARGET_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint flags, outputTechnology;
+            public ushort edidManufactureId, edidProductCodeId;
+            public uint connectorInstance;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string monitorFriendlyDeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string monitorDevicePath;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern int GetDisplayConfigBufferSizes(uint flags, out uint numPaths, out uint numModes);
+
+        [DllImport("user32.dll")]
+        private static extern int QueryDisplayConfig(uint flags, ref uint numPaths, IntPtr paths, ref uint numModes, IntPtr modes, IntPtr topologyId);
+
+        [DllImport("user32.dll")]
+        private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DEVICE_NAME request);
+
+        [DllImport("user32.dll")]
+        private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME request);
+
+        /// <summary>Per ogni \\.\DISPLAYn attivo: percorso e nome del monitor collegato.</summary>
+        private static Dictionary<string, (string Path, string Name)> MonitorIdentities()
+        {
+            var result = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
+            if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out var numPaths, out var numModes) != 0 || numPaths == 0)
+            {
+                return result;
+            }
+
+            var paths = Marshal.AllocHGlobal((int)numPaths * PathInfoSize);
+            var modes = Marshal.AllocHGlobal((int)Math.Max(numModes, 1) * ModeInfoSize);
+            try
+            {
+                if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref numPaths, paths, ref numModes, modes, IntPtr.Zero) != 0)
+                {
+                    return result;
+                }
+
+                for (var i = 0; i < numPaths; i++)
+                {
+                    var p = paths + i * PathInfoSize;
+                    // sourceInfo: adapterId (0), id (8); targetInfo: adapterId (20), id (28)
+                    var source = new DISPLAYCONFIG_SOURCE_DEVICE_NAME();
+                    source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+                    source.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME));
+                    source.header.adapterId = Marshal.PtrToStructure<LUID>(p);
+                    source.header.id = (uint)Marshal.ReadInt32(p, 8);
+
+                    var target = new DISPLAYCONFIG_TARGET_DEVICE_NAME();
+                    target.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+                    target.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_TARGET_DEVICE_NAME));
+                    target.header.adapterId = Marshal.PtrToStructure<LUID>(p + 20);
+                    target.header.id = (uint)Marshal.ReadInt32(p, 28);
+
+                    if (DisplayConfigGetDeviceInfo(ref source) == 0 && DisplayConfigGetDeviceInfo(ref target) == 0 &&
+                        !string.IsNullOrEmpty(source.viewGdiDeviceName) && !result.ContainsKey(source.viewGdiDeviceName))
+                    {
+                        result[source.viewGdiDeviceName] = (target.monitorDevicePath ?? "", (target.monitorFriendlyDeviceName ?? "").Trim());
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(paths);
+                Marshal.FreeHGlobal(modes);
+            }
+
+            return result;
         }
 
         public static string MonitorDeviceOf(IntPtr hwnd)
