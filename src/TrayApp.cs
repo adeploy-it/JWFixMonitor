@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Threading;
@@ -34,12 +34,12 @@ namespace JWFixMonitor
             _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
             _settings = Settings.Load();
 
-            _statusItem = new ToolStripMenuItem("Avvio…") { Enabled = false };
-            _enabledItem = new ToolStripMenuItem("Attivo", null, (s, e) => Toggle(ref _settings.Enabled));
-            _monitorMenu = new ToolStripMenuItem("Schermo della finestra media");
-            _topMostItem = new ToolStripMenuItem("Sempre in primo piano", null, (s, e) => Toggle(ref _settings.TopMost));
-            _notifyItem = new ToolStripMenuItem("Mostra notifiche", null, (s, e) => Toggle(ref _settings.Notifications));
-            _startupItem = new ToolStripMenuItem("Avvia con Windows", null, (s, e) =>
+            _statusItem = new ToolStripMenuItem(L.T("Starting")) { Enabled = false };
+            _enabledItem = new ToolStripMenuItem(L.T("Enabled"), null, (s, e) => Toggle(ref _settings.Enabled));
+            _monitorMenu = new ToolStripMenuItem(L.T("MonitorMenu"));
+            _topMostItem = new ToolStripMenuItem(L.T("TopMost"), null, (s, e) => Toggle(ref _settings.TopMost));
+            _notifyItem = new ToolStripMenuItem(L.T("Notifications"), null, (s, e) => Toggle(ref _settings.Notifications));
+            _startupItem = new ToolStripMenuItem(L.T("StartWithWindows"), null, (s, e) =>
             {
                 Startup.Set(!Startup.IsEnabled, Application.ExecutablePath);
                 RefreshMenu();
@@ -54,14 +54,14 @@ namespace JWFixMonitor
             menu.Items.Add(_notifyItem);
             menu.Items.Add(_startupItem);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Sistema di nuovo adesso", null, (s, e) => _service.PlaceNow());
-            menu.Items.Add("Riapri finestra media", null, (s, e) => Reopen());
+            menu.Items.Add(L.T("PlaceNow"), null, (s, e) => _service.PlaceNow());
+            menu.Items.Add(L.T("ReopenMedia"), null, (s, e) => Reopen());
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Cosa va in TV… (clic sull'icona)", null, (s, e) => _panel.ShowPanel());
-            menu.Items.Add("Torna a JW in TV (Ctrl+Alt+J)", null, (s, e) => BackToJw("menu"));
+            menu.Items.Add(L.T("WhatsOnTv"), null, (s, e) => _panel.ShowPanel());
+            menu.Items.Add(L.T("BackToJwMenu"), null, (s, e) => BackToJw("menu"));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Apri il registro (log)", null, (s, e) => OpenLog());
-            menu.Items.Add("Esci", null, (s, e) => ExitThread());
+            menu.Items.Add(L.T("OpenLog"), null, (s, e) => OpenLog());
+            menu.Items.Add(L.T("Exit"), null, (s, e) => ExitThread());
             menu.Opening += (s, e) => RefreshMenu();
 
             _icon = new NotifyIcon
@@ -125,6 +125,12 @@ namespace JWFixMonitor
             Log.Write("JWFixMonitor avviato. Schermi: " + string.Join(", ",
                 Native.Monitors().ConvertAll(m => m.Device + " " + m.Name + " " + m.Model + " " + m.Bounds + (m.IsPrimary ? " principale" : ""))));
 
+            // avvio automatico attivo: aggiorno il percorso, nel caso il programma sia stato spostato
+            if (Startup.IsEnabled)
+            {
+                Startup.Set(true, Application.ExecutablePath);
+            }
+
             _service.Start();
             RefreshMenu();
         }
@@ -150,7 +156,7 @@ namespace JWFixMonitor
                 }
 
                 _ui.Post(__ => ShowBalloon(
-                    "La finestra media di JW Library è stata chiusa. Clicca per riaprirla.",
+                    L.T("MediaClosedOffer"),
                     offerReopen: true, timeoutMs: 10000), null);
             });
         }
@@ -160,7 +166,7 @@ namespace JWFixMonitor
         {
             if (_service.Tracked != IntPtr.Zero)
             {
-                ShowBalloon("La finestra media è già aperta.", offerReopen: false);
+                ShowBalloon(L.T("MediaAlreadyOpen"), offerReopen: false);
                 return;
             }
 
@@ -181,7 +187,7 @@ namespace JWFixMonitor
                     {
                         Log.Write("Riapertura finestra media non riuscita: " + error);
                         _ui.Post(_ => ShowBalloon(
-                            "Non riesco a riaprirla (" + error + "): in JW Library vai su Home → Impostazioni → Riapri",
+                            L.F("ReopenFailed", error),
                             offerReopen: false, timeoutMs: 10000), null);
                     }
                 }
@@ -207,7 +213,7 @@ namespace JWFixMonitor
 
             if (!_swap.Send(root, out var error))
             {
-                ShowBalloon("Non riesco a mandarla in TV: " + error, offerReopen: false, timeoutMs: 5000);
+                ShowBalloon(L.F("SendFailed", error), offerReopen: false, timeoutMs: 5000);
             }
 
             _panel.RefreshState();
@@ -217,7 +223,7 @@ namespace JWFixMonitor
         {
             if (_swap.Current == IntPtr.Zero && !_service.Covered)
             {
-                ShowBalloon("In TV c'è già JW Library.", offerReopen: false);
+                ShowBalloon(L.T("AlreadyJw"), offerReopen: false);
                 return;
             }
 
@@ -238,7 +244,7 @@ namespace JWFixMonitor
                 if (_swap.Current == hwnd && (!Native.IsWindow(hwnd) || !Native.IsWindowVisible(hwnd)))
                 {
                     _swap.Restore("la finestra in TV è stata chiusa");
-                    ShowBalloon("La finestra in TV è stata chiusa: torna JW Library.", offerReopen: false);
+                    ShowBalloon(L.T("SwappedClosed"), offerReopen: false);
                     if (_panel.Visible)
                     {
                         _panel.RefreshList();
@@ -345,12 +351,12 @@ namespace JWFixMonitor
             _topMostItem.Checked = _settings.TopMost;
             _notifyItem.Checked = _settings.Notifications;
             _startupItem.Checked = Startup.IsEnabled;
-            ShowStatus(_service?.Status ?? "Avvio…");
+            ShowStatus(_service?.Status ?? L.T("Starting"));
 
             _monitorMenu.DropDownItems.Clear();
 
             var choice = _settings.Choice;
-            var auto = new ToolStripMenuItem("Automatico (schermo secondario)", null, (s, e) => ChooseMonitor(MonitorChoice.Auto))
+            var auto = new ToolStripMenuItem(L.T("AutoSecondary"), null, (s, e) => ChooseMonitor(MonitorChoice.Auto))
             {
                 Checked = choice.IsAuto
             };
@@ -371,7 +377,7 @@ namespace JWFixMonitor
             if (!choice.IsAuto && chosen == null)
             {
                 _monitorMenu.DropDownItems.Add(new ToolStripMenuItem(
-                    "Schermo scelto non collegato (" + (choice.Device ?? "").TrimStart('\\', '.') + ")")
+                    L.F("ChosenNotConnected", (choice.Device ?? "").TrimStart('\\', '.')))
                 {
                     Enabled = false,
                     Checked = true
@@ -407,7 +413,7 @@ namespace JWFixMonitor
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Non riesco ad aprire il registro:\n" + ex.Message, "JWFixMonitor");
+                MessageBox.Show(L.F("LogOpenFailed", ex.Message), "JWFixMonitor");
             }
         }
 

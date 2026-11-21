@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace JWFixMonitor
 {
@@ -27,7 +27,7 @@ namespace JWFixMonitor
             error = null;
             if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd))
             {
-                error = "la finestra non esiste più";
+                error = L.T("WindowGone");
                 return false;
             }
 
@@ -39,21 +39,21 @@ namespace JWFixMonitor
 
             if (!WindowFilter.CanSend(Native.FactsOf(hwnd, _service.Tracked)))
             {
-                error = "questa finestra non si può mandare in TV";
+                error = L.T("CannotSend");
                 return false;
             }
 
             var target = _service.CurrentTarget();
             if (target == null)
             {
-                error = "nessuno schermo TV collegato";
+                error = L.T("NoTv");
                 return false;
             }
 
             var placement = Native.PlacementOf(hwnd);
             if (placement == null)
             {
-                error = "non riesco a leggere la posizione della finestra";
+                error = L.T("NoPlacement");
                 return false;
             }
 
