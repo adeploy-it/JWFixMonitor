@@ -10,6 +10,7 @@ namespace JWFixMonitor
     {
         public const int SW_SHOWNORMAL = 1;
         public const int SW_MAXIMIZE = 3;
+        public const int SW_SHOWNOACTIVATE = 4;
         public const uint EVENT_OBJECT_HIDE = 0x8003;
         public const int WS_EX_TOOLWINDOW = 0x00000080;
         public const int WS_EX_APPWINDOW = 0x00040000;

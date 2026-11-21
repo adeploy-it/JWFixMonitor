@@ -197,7 +197,7 @@ namespace JWFixMonitor
                     }
                 }
 
-                Log.Write("Finestra media trovata e pronta");
+                Log.Write($"Finestra media trovata e pronta (titolo \"{Native.TitleOf(frame)}\")");
                 _trackedCore = core;
                 _announced = false;
                 _forcePlace = true; // applica sempre bordo e ritaglio alla finestra nuova
@@ -246,7 +246,7 @@ namespace JWFixMonitor
                 }
 
                 var c = Native.FindWindowEx(h, IntPtr.Zero, "Windows.UI.Core.CoreWindow", null);
-                if (c != IntPtr.Zero && IsJwlProcess(c))
+                if (c != IntPtr.Zero && IsJwlProcess(c) && !IsJwlMainWindow(h))
                 {
                     frame = h;
                     core = c;
@@ -256,6 +256,42 @@ namespace JWFixMonitor
 
             frame = core = IntPtr.Zero;
             return false;
+        }
+
+        private static readonly HashSet<IntPtr> KnownMainWindows = new HashSet<IntPtr>();
+
+        /// <summary>
+        /// La finestra principale di JW a schermo intero è anch'essa "sempre in primo piano":
+        /// la riconosco dal menu laterale (navigation_home, …), che la finestra media non ha.
+        /// Gli identificativi non dipendono dalla lingua.
+        /// </summary>
+        private static bool IsJwlMainWindow(IntPtr frame)
+        {
+            KnownMainWindows.RemoveWhere(h => !Native.IsWindow(h));
+            if (KnownMainWindows.Contains(frame))
+            {
+                return true;
+            }
+
+            try
+            {
+                var nav = new OrCondition(
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "navigation_home"),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "navigation_bible"),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "navigation_library"));
+                if (AutomationElement.FromHandle(frame).FindFirst(TreeScope.Descendants, nav) == null)
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                return false; // interfaccia non leggibile: la tratto come prima
+            }
+
+            KnownMainWindows.Add(frame);
+            Log.Write("La finestra principale di JW Library è a schermo intero: non è la finestra media, non la tocco");
+            return true;
         }
 
         private static bool IsJwlProcess(IntPtr hwnd)
@@ -437,6 +473,12 @@ namespace JWFixMonitor
             if (Native.IsIconic(frame))
             {
                 Native.ShowWindow(frame, Native.SW_RESTORE);
+            }
+            else if (Native.IsZoomed(frame))
+            {
+                // ingrandita: Windows la tiene sopra la barra delle applicazioni e non
+                // la lascia coprire tutto lo schermo. La riporto normale, senza fuoco
+                Native.ShowWindow(frame, Native.SW_SHOWNOACTIVATE);
             }
 
             Native.SetBorderless(frame, true);
