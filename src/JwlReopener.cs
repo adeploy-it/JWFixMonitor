@@ -6,23 +6,34 @@ namespace JWFixMonitor
 {
     /// <summary>
     /// Riapre la finestra media di JW Library facendo quello che farebbe l'utente:
-    /// Home → Impostazioni → "Riapri" → Chiudi. JW resta su Home: andare su Home mette
-    /// in pausa un video in corso e "Indietro" non è affidabile. Usa UI Automation, quindi
-    /// dipende dall'interfaccia (e dalla lingua italiana) di JW Library 15.x.
-    /// Sincrono (5–15 s): da chiamare fuori dal thread dell'interfaccia.
+    /// Home → Impostazioni → "Riapri" → Chiudi, poi torna alla sezione di prima (dove
+    /// il player resta aperto) e, se un video andava, lo fa ripartire. Usa UI
+    /// Automation, quindi dipende dall'interfaccia (e dalla lingua italiana) di
+    /// JW Library 15.x. Sincrono (5–20 s): da chiamare fuori dal thread dell'interfaccia.
     /// </summary>
     internal static class JwlReopener
     {
         // nomi dell'interfaccia di JW Library 15.10.9 (italiano)
         private const string MainTitle = "JW Library";
         private const string HomeId = "navigation_home";
+        private const string NavigationPrefix = "navigation_"; // _home, _bible, _library, _meetings, _personal_study
         private const string SettingsName = "Impostazioni";
         private const string SettingsClass = "AppBarButton";
         private const string ReopenName = "Riapri";
         private const string SecondScreenToggleName = "Riproduci video sullo schermo secondario";
         private const string CloseId = "CloseButton";
+        private const string PlayButtonId = "TogglePlaybackButton";
+        private const string PauseName = "Pausa";     // nome del pulsante mentre il video va
+        private const string PlayName = "Riproduci";
+        private const int NavColumnWidth = 48;        // larghezza delle icone del menu laterale chiuso
 
-        public static bool TryReopen(out string error)
+        private static readonly TimeSpan MediaReadyTimeout = TimeSpan.FromSeconds(10);
+
+        /// <summary>La finestra principale di JW Library è aperta?</summary>
+        public static bool IsMainWindowOpen() => FindMainFrame() != IntPtr.Zero;
+
+        /// <param name="mediaReady">vero quando JWFixMonitor ha agganciato la nuova finestra media</param>
+        public static bool TryReopen(Func<bool> mediaReady, out string error)
         {
             error = null;
             var frame = FindMainFrame();
@@ -34,54 +45,67 @@ namespace JWFixMonitor
 
             var previous = Native.GetForegroundWindow();
             var wasMinimized = Native.IsIconic(frame);
+            AutomationElement root = null;
+            var settingsOpen = false;
 
             try
             {
                 Log.Write("Riapertura finestra media: inizio");
-                Native.ShowWindow(frame, Native.SW_RESTORE);
+                if (wasMinimized)
+                {
+                    Native.ShowWindow(frame, Native.SW_RESTORE); // non tocco una finestra massimizzata
+                }
+
                 Native.ForceForeground(frame);
                 Thread.Sleep(1500); // JW sospesa: le serve un attimo per esporre l'interfaccia
 
-                var root = AutomationElement.FromHandle(frame);
+                root = AutomationElement.FromHandle(frame);
+
+                // dove era l'utente: andare su Home mette in pausa il video, ma il
+                // player resta aperto nella sua sezione e lì lo si ritrova
+                var section = SelectedSection(root);
+                var player = Find(root, ById(PlayButtonId), 300);
+                var wasPlaying = player != null && player.Current.Name == PauseName;
+                Log.Write($"Riapertura finestra media: sezione {section ?? "?"}, video in corso: {(wasPlaying ? "sì" : "no")}");
 
                 // Impostazioni già aperte? Allora "Riapri" è già lì
                 var reopen = Find(root, ByName(ReopenName), 500);
-                if (reopen == null && !OpenSettings(root, out error))
+                settingsOpen = reopen != null;
+                if (reopen == null)
                 {
-                    return false;
+                    if (!OpenSettings(frame, root, out error))
+                    {
+                        return false;
+                    }
+
+                    settingsOpen = true;
+                    reopen = Find(root, ByName(ReopenName), 3000);
                 }
 
-                reopen = reopen ?? Find(root, ByName(ReopenName), 3000);
                 if (reopen != null)
                 {
                     Invoke(reopen);
                     Log.Write("Riapertura finestra media: premuto Riapri");
                 }
-                else
+                else if (!TurnOnSecondScreen(root))
                 {
-                    var toggle = Find(root, ByName(SecondScreenToggleName), 1000);
-                    object pattern = null;
-                    var tp = toggle != null && toggle.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)
-                        ? (TogglePattern)pattern
-                        : null;
-                    if (tp == null || tp.Current.ToggleState == ToggleState.On)
-                    {
-                        error = "Non trovo il pulsante Riapri";
-                        return false;
-                    }
-
-                    tp.Toggle();
-                    Log.Write("Riapertura finestra media: acceso lo schermo secondario");
+                    error = "Non trovo il pulsante Riapri";
+                    return false;
                 }
 
-                Thread.Sleep(800);
-                var close = Find(root, ById(CloseId), 2000);
-                if (close != null)
+                // aspetto che JWFixMonitor abbia sistemato la nuova finestra: la
+                // conversione sposta il fuoco e non va disturbata
+                var until = DateTime.UtcNow + MediaReadyTimeout;
+                while (!mediaReady() && DateTime.UtcNow < until)
                 {
-                    Invoke(close);
-                    Thread.Sleep(500);
+                    Thread.Sleep(250);
                 }
 
+                Native.ForceForeground(frame);
+                CloseSettings(root);
+                settingsOpen = false;
+
+                ReturnTo(frame, root, section, wasPlaying);
                 Log.Write("Riapertura finestra media: fatto");
                 return true;
             }
@@ -93,6 +117,18 @@ namespace JWFixMonitor
             }
             finally
             {
+                if (settingsOpen && root != null)
+                {
+                    try
+                    {
+                        CloseSettings(root); // non lascio JW fermo sulle Impostazioni
+                    }
+                    catch (Exception)
+                    {
+                        // JW sta cambiando: pazienza
+                    }
+                }
+
                 if (wasMinimized)
                 {
                     Native.ShowWindow(frame, Native.SW_MINIMIZE);
@@ -105,21 +141,17 @@ namespace JWFixMonitor
             }
         }
 
-        private static bool OpenSettings(AutomationElement root, out string error)
+        private static bool OpenSettings(IntPtr frame, AutomationElement root, out string error)
         {
             error = null;
 
             // la selezione via UI Automation non cambia pagina se si è in una
             // sotto-pagina di Home: serve un clic vero sulla casetta
-            var home = Find(root, ById(HomeId), 3000);
-            if (home == null)
+            if (!ClickNavigation(frame, root, HomeId))
             {
-                error = "Non trovo il pulsante Home";
+                error = "Non riesco a cliccare Home";
                 return false;
             }
-
-            var r = home.Current.BoundingRectangle;
-            Native.ClickAt((int)(r.Left + r.Width / 2), (int)(r.Top + r.Height / 2));
 
             var settings = Find(root, new AndCondition(ByName(SettingsName),
                 new PropertyCondition(AutomationElement.ClassNameProperty, SettingsClass)), 4000);
@@ -131,6 +163,115 @@ namespace JWFixMonitor
 
             Invoke(settings);
             Log.Write("Riapertura finestra media: aperte le Impostazioni");
+            return true;
+        }
+
+        /// <summary>"Riapri" manca: se l'interruttore dello schermo secondario è spento lo accendo.</summary>
+        private static bool TurnOnSecondScreen(AutomationElement root)
+        {
+            var toggle = Find(root, ByName(SecondScreenToggleName), 1000);
+            if (toggle == null || !toggle.TryGetCurrentPattern(TogglePattern.Pattern, out var p))
+            {
+                return false;
+            }
+
+            var tp = (TogglePattern)p;
+            if (tp.Current.ToggleState == ToggleState.On)
+            {
+                return false;
+            }
+
+            tp.Toggle();
+            Log.Write("Riapertura finestra media: acceso lo schermo secondario");
+            return true;
+        }
+
+        private static void CloseSettings(AutomationElement root)
+        {
+            var close = Find(root, ById(CloseId), 2000);
+            if (close != null)
+            {
+                Invoke(close);
+                Thread.Sleep(500);
+            }
+        }
+
+        /// <summary>AutomationId della sezione selezionata nel menu laterale (es. navigation_library), o null.</summary>
+        private static string SelectedSection(AutomationElement root)
+        {
+            var walker = TreeWalker.ControlViewWalker;
+            foreach (AutomationElement group in root.FindAll(TreeScope.Descendants,
+                         new PropertyCondition(AutomationElement.ClassNameProperty, "NamedContainerAutomationPeer")))
+            {
+                var id = group.Current.AutomationId;
+                if (id == null || !id.StartsWith(NavigationPrefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var item = walker.GetParent(group);
+                if (item != null && item.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var p) &&
+                    ((SelectionItemPattern)p).Current.IsSelected)
+                {
+                    return id;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>Torna alla sezione di prima e, se il video andava, lo fa ripartire.</summary>
+        private static void ReturnTo(IntPtr frame, AutomationElement root, string section, bool wasPlaying)
+        {
+            if (section == null || section == HomeId || !ClickNavigation(frame, root, section))
+            {
+                return;
+            }
+
+            Log.Write("Riapertura finestra media: tornato alla sezione " + section);
+            if (!wasPlaying)
+            {
+                return;
+            }
+
+            var player = Find(root, new AndCondition(ById(PlayButtonId), ByName(PlayName)), 3000);
+            if (player != null)
+            {
+                Invoke(player);
+                Log.Write("Riapertura finestra media: video ripartito");
+            }
+        }
+
+        /// <summary>
+        /// Clic vero sull'icona di una voce del menu laterale. Clicco nella colonna delle
+        /// icone: il centro della voce intera cadrebbe sulla pagina (es. sul riquadro
+        /// della scrittura del giorno). Non clicco se sotto il punto non c'è JW Library.
+        /// </summary>
+        private static bool ClickNavigation(IntPtr frame, AutomationElement root, string navigationId)
+        {
+            var group = Find(root, ById(navigationId), 3000);
+            var item = group == null ? null : TreeWalker.ControlViewWalker.GetParent(group);
+            if (item == null || item.Current.IsOffscreen)
+            {
+                return false;
+            }
+
+            var r = item.Current.BoundingRectangle;
+            if (r.IsEmpty || r.Width <= 0 || r.Height <= 0)
+            {
+                return false;
+            }
+
+            var x = (int)(r.Left + Math.Min(r.Width, NavColumnWidth) / 2);
+            var y = (int)(r.Top + r.Height / 2);
+            var under = Native.WindowFromPoint(new Native.POINT { X = x, Y = y });
+            if (under == IntPtr.Zero || Native.GetAncestor(under, Native.GA_ROOT) != frame)
+            {
+                Log.Write("Riapertura finestra media: JW Library è coperta, non clicco");
+                return false;
+            }
+
+            Native.ClickAt(x, y);
             return true;
         }
 

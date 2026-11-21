@@ -448,8 +448,9 @@ namespace JWFixMonitor
                 return false;
             }
 
+            // la cornice visibile include il bordo di Windows 11, spinto apposta fuori dallo schermo
             var ok = visible != null
-                ? Geometry.Matches(visible.Value, target.Bounds)
+                ? Geometry.Matches(visible.Value, Geometry.Grow(target.Bounds, Native.VisibleBorderThickness(frame)))
                 : Geometry.Matches(wr.Value, Geometry.TargetWindowRect(target.Bounds, Geometry.DefaultInsets));
 
             return ok &&

@@ -71,8 +71,7 @@ namespace JWFixMonitor
 
             // finestra media chiusa: propongo di riaprirla. È una domanda, non un
             // semplice avviso, quindi compare anche con "Mostra notifiche" spento
-            _service.MediaWindowClosed += () => _ui.Post(_ => ShowBalloon(
-                "La finestra media di JW Library è stata chiusa. Clicca per riaprirla.", offerReopen: true, timeoutMs: 10000), null);
+            _service.MediaWindowClosed += OnMediaWindowClosed;
             _icon.BalloonTipClicked += (s, e) =>
             {
                 if (_offerReopen)
@@ -110,9 +109,35 @@ namespace JWFixMonitor
             _icon.ShowBalloonTip(timeoutMs, "JWFixMonitor", text, ToolTipIcon.Info);
         }
 
+        /// <summary>
+        /// Chiamato dal servizio (thread di lavoro). Aspetto un attimo: se nel frattempo
+        /// JW Library si è chiuso del tutto, o la finestra media è già tornata, non chiedo nulla.
+        /// </summary>
+        private void OnMediaWindowClosed()
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(2000);
+                if (_service.Tracked != IntPtr.Zero || !JwlReopener.IsMainWindowOpen())
+                {
+                    return;
+                }
+
+                _ui.Post(__ => ShowBalloon(
+                    "La finestra media di JW Library è stata chiusa. Clicca per riaprirla.",
+                    offerReopen: true, timeoutMs: 10000), null);
+            });
+        }
+
         /// <summary>Riapre la finestra media in JW Library, su un thread a parte; una volta sola alla volta.</summary>
         private void Reopen()
         {
+            if (_service.Tracked != IntPtr.Zero)
+            {
+                ShowBalloon("La finestra media è già aperta.", offerReopen: false);
+                return;
+            }
+
             if (Interlocked.CompareExchange(ref _reopening, 1, 0) != 0)
             {
                 return;
@@ -122,7 +147,7 @@ namespace JWFixMonitor
             {
                 try
                 {
-                    if (JwlReopener.TryReopen(out var error))
+                    if (JwlReopener.TryReopen(() => _service.Tracked != IntPtr.Zero, out var error))
                     {
                         _service.PlaceNow();
                     }
