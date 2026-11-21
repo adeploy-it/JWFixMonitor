@@ -33,6 +33,29 @@ namespace JWFixMonitor
         public const int OBJID_WINDOW = 0;
 
         public const int SW_RESTORE = 9;
+        public const int SW_MINIMIZE = 6;
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x02, MOUSEEVENTF_LEFTUP = 0x04;
+
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT point);
+        [DllImport("user32.dll")] private static extern void mouse_event(uint flags, int dx, int dy, uint data, IntPtr extra);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int max);
+
+        public static string TitleOf(IntPtr hwnd)
+        {
+            var sb = new StringBuilder(256);
+            return GetWindowText(hwnd, sb, sb.Capacity) > 0 ? sb.ToString() : "";
+        }
+
+        /// <summary>Clic sinistro vero in un punto dello schermo; poi rimette il cursore dov'era.</summary>
+        public static void ClickAt(int x, int y)
+        {
+            GetCursorPos(out var old);
+            SetCursorPos(x, y);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+            SetCursorPos(old.X, old.Y);
+        }
         public const uint GA_ROOT = 2;
 
         public const uint INPUT_KEYBOARD = 1;
