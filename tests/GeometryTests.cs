@@ -191,6 +191,7 @@ namespace JWFixMonitor.Tests
         [Fact]
         public void Label_shows_monitor_name()
         {
+            L.Lang = "it";
             var sala = Sala();
             Assert.Equal("Schermo 3 — SAMSUNG 1280×720", sala[2].Label);
             Assert.Equal("Schermo 2 — 1920×1080 (principale)", sala[1].Label);

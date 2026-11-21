@@ -13,7 +13,7 @@ namespace JWFixMonitor
             {
                 if (!isFirst)
                 {
-                    MessageBox.Show("JWFixMonitor è già in esecuzione.\nLo trovi nell'area di notifica, vicino all'orologio.",
+                    MessageBox.Show(L.T("AlreadyRunning"),
                         "JWFixMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }

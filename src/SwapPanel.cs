@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -31,7 +31,7 @@ namespace JWFixMonitor
             _service = service;
             _notify = notify;
 
-            Text = "JWFixMonitor — cosa va in TV";
+            Text = L.T("PanelTitle");
             FormBorderStyle = FormBorderStyle.Sizable;
             MinimizeBox = true;      // si riduce a icona nella barra delle applicazioni
             MaximizeBox = false;
@@ -44,7 +44,7 @@ namespace JWFixMonitor
 
             _back = new Button
             {
-                Text = "◀  Torna a JW   (Ctrl+Alt+J)",
+                Text = L.T("BackButton"),
                 Dock = DockStyle.Right,
                 Width = 250,
                 FlatStyle = FlatStyle.Flat,
@@ -153,15 +153,15 @@ namespace JWFixMonitor
             var current = _swap.Current;
             foreach (var t in _tiles)
             {
-                t.Title = t.IsJw ? "JW Library — video" : Native.TitleOf(t.Hwnd);
+                t.Title = t.IsJw ? L.T("JwTile") : Native.TitleOf(t.Hwnd);
                 t.InTv = t.IsJw ? current == IntPtr.Zero : t.Hwnd == current;
                 t.Minimized = Native.IsIconic(t.Hwnd);
                 t.Invalidate();
             }
 
             _state.Text = current != IntPtr.Zero
-                ? "In TV: " + Native.TitleOf(current)
-                : "In TV: JW Library. Clicca una finestra per mandarla in TV.";
+                ? L.F("InTv", Native.TitleOf(current))
+                : L.T("InTvJw");
             _back.Enabled = current != IntPtr.Zero || _service.Covered;
             _back.BackColor = _back.Enabled ? Color.FromArgb(255, 214, 102) : SystemColors.Control;
 
@@ -294,7 +294,7 @@ namespace JWFixMonitor
 
             if (!_swap.Send(tile.Hwnd, out var error))
             {
-                _notify("Non riesco a mandarla in TV: " + error);
+                _notify(L.F("SendFailed", error));
             }
 
             Sync(); // il pannello resta aperto: da qui si torna a JW
@@ -514,7 +514,7 @@ namespace JWFixMonitor
                 g.Clear(Color.FromArgb(32, 32, 32));
                 var hint = new Rectangle(Pad, Height - Pad - HintH, Width - 2 * Pad, HintH);
                 TextRenderer.DrawText(g,
-                    (Focused ? "● " : "") + "Rotellina: scorri  ·  Ctrl+rotellina: zoom  ·  Clic: clicca in TV  ·  Tasti: vanno alla TV",
+                    (Focused ? "● " : "") + L.T("RemoteHint"),
                     Font, hint, Focused ? Color.FromArgb(120, 220, 140) : Color.Gainsboro,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
@@ -578,12 +578,12 @@ namespace JWFixMonitor
                         g.DrawIcon(_icon, new Rectangle(p.Left + (p.Width - 32) / 2, p.Top + 30, 32, 32));
                     }
 
-                    TextRenderer.DrawText(g, Minimized ? "ridotta a icona" : "anteprima non disponibile", Font,
+                    TextRenderer.DrawText(g, Minimized ? L.T("Minimized") : L.T("NoPreview"), Font,
                         new Rectangle(p.Left, p.Top + 72, p.Width, 24), Color.Gainsboro, TextFormatFlags.HorizontalCenter);
                 }
 
                 var text = new Rectangle(Pad, PreviewH + Pad + 2, W - 2 * Pad, H - PreviewH - Pad - 4);
-                TextRenderer.DrawText(g, (InTv ? "● IN TV  " : "") + Title, IsJw ? _bold : Font, text,
+                TextRenderer.DrawText(g, (InTv ? L.T("InTvBadge") : "") + Title, IsJw ? _bold : Font, text,
                     InTv ? Color.FromArgb(0, 120, 60) : SystemColors.ControlText,
                     TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.HorizontalCenter);
 

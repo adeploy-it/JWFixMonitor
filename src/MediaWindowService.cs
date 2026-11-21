@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
@@ -32,7 +32,7 @@ namespace JWFixMonitor
         private bool _disabledByUs;
         private bool _announced;
         private DateTime _lastConvertAttempt = DateTime.MinValue;
-        private string _status = "Avvio…";
+        private string _status = L.T("Starting");
 
         public event Action<string> StatusChanged;
         public event Action<string> Notification;
@@ -166,7 +166,7 @@ namespace JWFixMonitor
             if (!s.Enabled)
             {
                 Release("pausa");
-                SetStatus("In pausa");
+                SetStatus(L.T("Paused"));
                 return;
             }
 
@@ -183,7 +183,7 @@ namespace JWFixMonitor
             {
                 if (!FindMediaWindow(out frame, out var core))
                 {
-                    SetStatus(IsJwlRunning() ? "In attesa della finestra media" : "JW Library non è avviato");
+                    SetStatus(IsJwlRunning() ? L.T("WaitingMedia") : L.T("JwNotRunning"));
                     return;
                 }
 
@@ -211,7 +211,7 @@ namespace JWFixMonitor
                         Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
                 }
 
-                SetStatus("In TV c'è un'altra finestra");
+                SetStatus(L.T("OtherOnTv"));
                 return;
             }
 
@@ -326,7 +326,7 @@ namespace JWFixMonitor
             }
 
             _lastConvertAttempt = DateTime.UtcNow;
-            SetStatus("Sistemo la finestra media…");
+            SetStatus(L.T("Fixing"));
 
             if (!Native.IsWindowEnabled(frame))
             {
@@ -412,7 +412,7 @@ namespace JWFixMonitor
                 // TV spenta o scollegata: non lascio una finestra bloccata e in primo
                 // piano sopra lo schermo principale
                 Release("nessuno schermo secondario");
-                SetStatus("Nessuno schermo secondario collegato");
+                SetStatus(L.T("NoSecondary"));
                 return;
             }
 
@@ -421,13 +421,13 @@ namespace JWFixMonitor
 
             if (!force && IsPlaced(frame, target, s))
             {
-                SetStatus($"Finestra media su {target.Label}");
+                SetStatus(L.F("MediaOn", target.Label));
                 return;
             }
 
             if (!AllowPlacement())
             {
-                SetStatus("Troppi spostamenti, riprovo tra poco");
+                SetStatus(L.T("TooMany"));
                 return;
             }
 
@@ -478,12 +478,12 @@ namespace JWFixMonitor
             Log.Write($"Posizionata su {target.Label} {target.Bounds}: " +
                       (placed ? "OK" : $"non precisa, finestra {Native.VisibleFrame(frame)}"));
 
-            SetStatus(placed ? $"Finestra media su {target.Label}" : "Posizione non precisa, riprovo");
+            SetStatus(placed ? L.F("MediaOn", target.Label) : L.T("NotPrecise"));
 
             if (placed && !_announced && s.Notifications)
             {
                 _announced = true;
-                Notification?.Invoke($"Finestra media sistemata su {target.Label}");
+                Notification?.Invoke(L.F("MediaPlaced", target.Label));
             }
         }
 

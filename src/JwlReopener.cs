@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Windows.Automation;
 
@@ -17,14 +17,15 @@ namespace JWFixMonitor
         private const string MainTitle = "JW Library";
         private const string HomeId = "navigation_home";
         private const string NavigationPrefix = "navigation_"; // _home, _bible, _library, _meetings, _personal_study
-        private const string SettingsName = "Impostazioni";
+        // nomi dei pulsanti di JW Library: italiano (verificati su 15.10.9), inglese e spagnolo (da verificare)
+        private static readonly string[] SettingsNames = { "Impostazioni", "Settings", "Configuración", "Ajustes" };
         private const string SettingsClass = "AppBarButton";
-        private const string ReopenName = "Riapri";
-        private const string SecondScreenToggleName = "Riproduci video sullo schermo secondario";
+        private static readonly string[] ReopenNames = { "Riapri", "Reopen", "Volver a abrir", "Reabrir" };
+        private static readonly string[] SecondScreenWords = { "secondari", "second", "secundari" }; // interruttore "schermo secondario"
         private const string CloseId = "CloseButton";
         private const string PlayButtonId = "TogglePlaybackButton";
-        private const string PauseName = "Pausa";     // nome del pulsante mentre il video va
-        private const string PlayName = "Riproduci";
+        private static readonly string[] PauseNames = { "Pausa", "Pause" };     // nome del pulsante mentre il video va
+        private static readonly string[] PlayNames = { "Riproduci", "Play", "Reproducir" };
         private const int NavColumnWidth = 48;        // larghezza delle icone del menu laterale chiuso
 
         private static readonly TimeSpan MediaReadyTimeout = TimeSpan.FromSeconds(10);
@@ -39,7 +40,7 @@ namespace JWFixMonitor
             var frame = FindMainFrame();
             if (frame == IntPtr.Zero)
             {
-                error = "JW Library non è avviato";
+                error = L.T("JwNotRunning");
                 return false;
             }
 
@@ -65,11 +66,11 @@ namespace JWFixMonitor
                 // player resta aperto nella sua sezione e lì lo si ritrova
                 var section = SelectedSection(root);
                 var player = Find(root, ById(PlayButtonId), 300);
-                var wasPlaying = player != null && player.Current.Name == PauseName;
+                var wasPlaying = player != null && Array.IndexOf(PauseNames, player.Current.Name) >= 0;
                 Log.Write($"Riapertura finestra media: sezione {section ?? "?"}, video in corso: {(wasPlaying ? "sì" : "no")}");
 
                 // Impostazioni già aperte? Allora "Riapri" è già lì
-                var reopen = Find(root, ByName(ReopenName), 500);
+                var reopen = Find(root, ByAnyName(ReopenNames), 500);
                 settingsOpen = reopen != null;
                 if (reopen == null)
                 {
@@ -79,7 +80,7 @@ namespace JWFixMonitor
                     }
 
                     settingsOpen = true;
-                    reopen = Find(root, ByName(ReopenName), 3000);
+                    reopen = Find(root, ByAnyName(ReopenNames), 3000);
                 }
 
                 if (reopen != null)
@@ -89,7 +90,7 @@ namespace JWFixMonitor
                 }
                 else if (!TurnOnSecondScreen(root))
                 {
-                    error = "Non trovo il pulsante Riapri";
+                    error = L.T("NoReopenButton");
                     return false;
                 }
 
@@ -149,15 +150,15 @@ namespace JWFixMonitor
             // sotto-pagina di Home: serve un clic vero sulla casetta
             if (!ClickNavigation(frame, root, HomeId))
             {
-                error = "Non riesco a cliccare Home";
+                error = L.T("NoHomeClick");
                 return false;
             }
 
-            var settings = Find(root, new AndCondition(ByName(SettingsName),
+            var settings = Find(root, new AndCondition(ByAnyName(SettingsNames),
                 new PropertyCondition(AutomationElement.ClassNameProperty, SettingsClass)), 4000);
             if (settings == null)
             {
-                error = "Non trovo il pulsante Impostazioni";
+                error = L.T("NoSettingsButton");
                 return false;
             }
 
@@ -169,7 +170,7 @@ namespace JWFixMonitor
         /// <summary>"Riapri" manca: se l'interruttore dello schermo secondario è spento lo accendo.</summary>
         private static bool TurnOnSecondScreen(AutomationElement root)
         {
-            var toggle = Find(root, ByName(SecondScreenToggleName), 1000);
+            var toggle = FindSecondScreenToggle(root);
             if (toggle == null || !toggle.TryGetCurrentPattern(TogglePattern.Pattern, out var p))
             {
                 return false;
@@ -234,7 +235,7 @@ namespace JWFixMonitor
                 return;
             }
 
-            var player = Find(root, new AndCondition(ById(PlayButtonId), ByName(PlayName)), 3000);
+            var player = Find(root, new AndCondition(ById(PlayButtonId), ByAnyName(PlayNames)), 3000);
             if (player != null)
             {
                 Invoke(player);
@@ -288,6 +289,35 @@ namespace JWFixMonitor
             }
 
             return IntPtr.Zero;
+        }
+
+        private static Condition ByAnyName(string[] names)
+        {
+            var conditions = Array.ConvertAll(names, n => (Condition)ByName(n));
+            return conditions.Length == 1 ? conditions[0] : new OrCondition(conditions);
+        }
+
+        /// <summary>Interruttore "Riproduci video sullo schermo secondario", in qualunque lingua.</summary>
+        private static AutomationElement FindSecondScreenToggle(AutomationElement root)
+        {
+            var until = DateTime.UtcNow.AddSeconds(1);
+            do
+            {
+                foreach (AutomationElement el in root.FindAll(TreeScope.Descendants,
+                             new PropertyCondition(AutomationElement.ClassNameProperty, "ToggleSwitch")))
+                {
+                    var name = (el.Current.Name ?? "").ToLowerInvariant();
+                    if (Array.Exists(SecondScreenWords, w => name.Contains(w)))
+                    {
+                        return el;
+                    }
+                }
+
+                Thread.Sleep(250);
+            }
+            while (DateTime.UtcNow < until);
+
+            return null;
         }
 
         private static Condition ByName(string name) =>

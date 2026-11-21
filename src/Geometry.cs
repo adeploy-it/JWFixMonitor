@@ -32,8 +32,8 @@ namespace JWFixMonitor
         public string Name = "";  // nome del monitor, es. SAMSUNG
 
         public string Label =>
-            $"Schermo {Number} — " + (string.IsNullOrEmpty(Name) ? "" : Name + " ") +
-            $"{Bounds.Width}×{Bounds.Height}" + (IsPrimary ? " (principale)" : "");
+            $"{L.T("Screen")} {Number} — " + (string.IsNullOrEmpty(Name) ? "" : Name + " ") +
+            $"{Bounds.Width}×{Bounds.Height}" + (IsPrimary ? " " + L.T("Primary") : "");
     }
 
     /// <summary>Schermo scelto dall'utente, con quanto serve per ritrovarlo se Windows lo rinomina.</summary>
