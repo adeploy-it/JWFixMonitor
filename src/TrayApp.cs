@@ -91,7 +91,10 @@ namespace JWFixMonitor
 
             // un'altra finestra in TV al posto di JW: pannello (clic sull'icona) e scorciatoie
             _swap = new TvSwap(_service);
-            _panel = new SwapPanel(_swap, _service, text => ShowBalloon(text, offerReopen: false, timeoutMs: 5000));
+            _panel = new SwapPanel(_swap, _service, text => ShowBalloon(text, offerReopen: false, timeoutMs: 5000))
+            {
+                Icon = _icon.Icon
+            };
             _icon.MouseClick += (s, e) =>
             {
                 if (e.Button == MouseButtons.Left)

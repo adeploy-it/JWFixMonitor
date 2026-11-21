@@ -25,6 +25,24 @@ namespace JWFixMonitor.Tests
         }
 
         [Fact]
+        public void Point_on_preview_maps_to_same_spot_on_tv()
+        {
+            // anteprima 480x270 a (10,20); finestra ingrandita sulla TV 1280x720 a destra del PC
+            var preview = new Box(10, 20, 490, 290);
+            var window = new Box(1920, 0, 3200, 720);
+
+            Assert.True(Geometry.MapPoint(preview, window, 10, 20, out var x, out var y));
+            Assert.Equal((1920, 0), (x, y));
+
+            Assert.True(Geometry.MapPoint(preview, window, 250, 155, out x, out y)); // centro
+            Assert.Equal((2560, 360), (x, y));
+
+            // fuori dall'anteprima (bande nere): niente clic
+            Assert.False(Geometry.MapPoint(preview, window, 5, 100, out _, out _));
+            Assert.False(Geometry.MapPoint(new Box(), window, 0, 0, out _, out _));
+        }
+
+        [Fact]
         public void Normal_app_window_can_go_on_tv()
         {
             Assert.True(WindowFilter.CanSend(Pdf()));

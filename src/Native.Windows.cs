@@ -93,6 +93,62 @@ namespace JWFixMonitor
             DwmUpdateThumbnailProperties(thumb, ref props);
         }
 
+        // ---------------- telecomando: input girato alla finestra in TV ----------------
+
+        private const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010,
+            MOUSEEVENTF_WHEEL = 0x0800, MOUSEEVENTF_VIRTUALDESK = 0x4000, MOUSEEVENTF_ABSOLUTE = 0x8000;
+
+        /// <summary>Segno sugli eventi mandati dal telecomando: se tornano al pannello li ignoro.</summary>
+        public static readonly IntPtr RemoteMark = new IntPtr(0x4A574658); // "JWFX"
+
+        [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
+        [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+        [DllImport("user32.dll")] public static extern IntPtr GetMessageExtraInfo();
+
+        private static INPUT MouseInput(uint flags, int dx = 0, int dy = 0, uint data = 0) => new INPUT
+        {
+            type = 0, // INPUT_MOUSE
+            u = new InputUnion { mi = new MOUSEINPUT { dx = dx, dy = dy, mouseData = data, dwFlags = flags, dwExtraInfo = RemoteMark } }
+        };
+
+        private static INPUT MoveTo(int x, int y)
+        {
+            int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77), vw = GetSystemMetrics(78), vh = GetSystemMetrics(79);
+            var nx = (int)((long)(x - vx) * 65535 / Math.Max(1, vw - 1));
+            var ny = (int)((long)(y - vy) * 65535 / Math.Max(1, vh - 1));
+            return MouseInput(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny);
+        }
+
+        /// <summary>
+        /// Va in (x,y), fa l'azione e torna dov'era: un'unica sequenza, eseguita da Windows
+        /// in ordine (con SetCursorPos il ritorno arrivava prima dell'azione).
+        /// </summary>
+        private static void MouseActionAt(int x, int y, params INPUT[] actions)
+        {
+            GetCursorPos(out var old);
+            var seq = new List<INPUT> { MoveTo(x, y) };
+            seq.AddRange(actions);
+            seq.Add(MoveTo(old.X, old.Y));
+            SendInput((uint)seq.Count, seq.ToArray(), Marshal.SizeOf(typeof(INPUT)));
+        }
+
+        public static void WheelAt(int x, int y, int delta) =>
+            MouseActionAt(x, y, MouseInput(MOUSEEVENTF_WHEEL, data: unchecked((uint)delta)));
+
+        public static void LeftClickAt(int x, int y) =>
+            MouseActionAt(x, y, MouseInput(0x0002), MouseInput(0x0004));
+
+        public static void RightClickAt(int x, int y) =>
+            MouseActionAt(x, y, MouseInput(MOUSEEVENTF_RIGHTDOWN), MouseInput(MOUSEEVENTF_RIGHTUP));
+
+        /// <summary>Preme e rilascia un tasto (i modificatori tenuti dall'utente restano validi).</summary>
+        public static void PressKey(byte vk, bool extended)
+        {
+            var ext = extended ? KEYEVENTF_EXTENDEDKEY : 0;
+            keybd_event(vk, 0, ext, IntPtr.Zero);
+            keybd_event(vk, 0, ext | KEYEVENTF_KEYUP, IntPtr.Zero);
+        }
+
         public static WINDOWPLACEMENT? PlacementOf(IntPtr hwnd)
         {
             var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf(typeof(WINDOWPLACEMENT)) };

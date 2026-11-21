@@ -22,6 +22,8 @@ namespace JWFixMonitor
         private readonly Label _state;
         private readonly Timer _timer;
         private readonly List<Tile> _tiles = new List<Tile>();
+        private readonly RemoteView _remote;
+        private const int RemoteHeight = 400;
 
         public SwapPanel(TvSwap swap, MediaWindowService service, Action<string> notify)
         {
@@ -30,10 +32,12 @@ namespace JWFixMonitor
             _notify = notify;
 
             Text = "JWFixMonitor — cosa va in TV";
-            FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MinimizeBox = true;      // si riduce a icona nella barra delle applicazioni
+            MaximizeBox = false;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
-            ShowInTaskbar = false;
+            ShowInTaskbar = true;
             MinimumSize = new Size(520, 360);
             Size = new Size(820, 600); // 3 colonne di caselle
             Font = new Font("Segoe UI", 10f);
@@ -59,7 +63,10 @@ namespace JWFixMonitor
             _grid.MouseWheel += (s, e) => UpdateThumbsLater();
             _grid.Layout += (s, e) => UpdateThumbsLater();
 
+            _remote = new RemoteView(this) { Dock = DockStyle.Top, Height = RemoteHeight, Visible = false };
+
             Controls.Add(_grid);
+            Controls.Add(_remote);
             Controls.Add(top);
 
             _timer = new Timer { Interval = 1500 };
@@ -68,7 +75,7 @@ namespace JWFixMonitor
             KeyPreview = true;
             KeyDown += (s, e) =>
             {
-                if (e.KeyCode == Keys.Escape)
+                if (e.KeyCode == Keys.Escape && !_remote.Visible)
                 {
                     Hide();
                 }
@@ -78,6 +85,11 @@ namespace JWFixMonitor
         /// <summary>Mostra il pannello in basso a destra sullo schermo principale.</summary>
         public void ShowPanel()
         {
+            if (WindowState == FormWindowState.Minimized)
+            {
+                WindowState = FormWindowState.Normal;
+            }
+
             var wasVisible = Visible;
             if (!wasVisible)
             {
@@ -111,6 +123,11 @@ namespace JWFixMonitor
 
         private void Sync()
         {
+            if (WindowState == FormWindowState.Minimized)
+            {
+                return; // ridotto a icona: niente da aggiornare né da ridimensionare
+            }
+
             var media = _service.Tracked;
             var wanted = new List<IntPtr>();
             if (media != IntPtr.Zero && Native.IsWindow(media))
@@ -120,9 +137,17 @@ namespace JWFixMonitor
 
             wanted.AddRange(Native.SendableWindows(media));
 
-            if (!wanted.SequenceEqual(_tiles.Select(t => t.Hwnd)))
+            // ordine stabile: chi c'era resta al suo posto, le finestre nuove vanno in fondo
+            var old = _tiles.Select(t => t.Hwnd).ToList();
+            var ordered = old.Where(wanted.Contains).Concat(wanted.Where(h => !old.Contains(h))).ToList();
+            if (media != IntPtr.Zero && ordered.Remove(media))
             {
-                Rebuild(wanted, media);
+                ordered.Insert(0, media);
+            }
+
+            if (!ordered.SequenceEqual(old))
+            {
+                Rebuild(ordered, media);
             }
 
             var current = _swap.Current;
@@ -140,6 +165,7 @@ namespace JWFixMonitor
             _back.Enabled = current != IntPtr.Zero || _service.Covered;
             _back.BackColor = _back.Enabled ? Color.FromArgb(255, 214, 102) : SystemColors.Control;
 
+            ShowRemote(current);
             UpdateThumbs();
         }
 
@@ -166,6 +192,70 @@ namespace JWFixMonitor
             _grid.ResumeLayout();
         }
 
+        /// <summary>Mostra (o toglie) l'anteprima grande di ciò che è in TV, allungando il pannello.</summary>
+        private void ShowRemote(IntPtr current)
+        {
+            var show = current != IntPtr.Zero && Native.IsWindow(current);
+            _remote.SetTarget(show ? current : IntPtr.Zero);
+            if (show == _remote.Visible)
+            {
+                return;
+            }
+
+            var wa = Screen.FromControl(this).WorkingArea;
+            if (show)
+            {
+                // più alto ma sempre dentro lo schermo
+                var height = Math.Min(Height + RemoteHeight, wa.Height);
+                var top = Math.Max(wa.Top, Math.Min(Top, wa.Bottom - height));
+                SetBounds(Left, top, Width, height);
+                _remote.Visible = true;
+                _remote.Focus(); // tastiera e rotellina vanno alla finestra in TV
+            }
+            else
+            {
+                _remote.Visible = false;
+                var height = Math.Max(MinimumSize.Height, Height - RemoteHeight);
+                SetBounds(Left, Math.Min(Top + (Height - height), wa.Bottom - height), Width, height);
+            }
+        }
+
+        /// <summary>Gira un tasto alla finestra in TV: la porto davanti un attimo e poi torno qui.</summary>
+        internal void ForwardKey(Keys key)
+        {
+            var target = _swap.Current;
+            if (target == IntPtr.Zero || !Native.IsWindow(target))
+            {
+                return;
+            }
+
+            var extended = key == Keys.Up || key == Keys.Down || key == Keys.Left || key == Keys.Right ||
+                           key == Keys.PageUp || key == Keys.PageDown || key == Keys.Home || key == Keys.End ||
+                           key == Keys.Insert || key == Keys.Delete;
+            Native.ForceForeground(target);
+            System.Threading.Thread.Sleep(30);
+            Native.PressKey((byte)key, extended);
+            System.Threading.Thread.Sleep(30);
+            Native.ForceForeground(Handle);
+            _remote.Focus();
+        }
+
+        /// <summary>Dopo un clic sulla TV il fuoco va là: lo riporto al pannello per la tastiera.</summary>
+        internal void TakeFocusBackSoon()
+        {
+            var t = new Timer { Interval = 200 };
+            t.Tick += (s, e) =>
+            {
+                t.Dispose();
+                if (Visible && _remote.Visible)
+                {
+                    Native.ForceForeground(Handle);
+                    _remote.Focus();
+                }
+            };
+            t.Start();
+        }
+
         private void UpdateThumbsLater()
         {
             if (IsHandleCreated && !IsDisposed)
@@ -181,6 +271,8 @@ namespace JWFixMonitor
             {
                 return;
             }
+
+            _remote.UpdateThumb();
 
             var view = _grid.RectangleToScreen(_grid.ClientRectangle);
             foreach (var t in _tiles)
@@ -240,6 +332,7 @@ namespace JWFixMonitor
             {
                 // nascosto: niente miniature né controlli in giro
                 _timer.Stop();
+                _remote.SetTarget(IntPtr.Zero);
                 foreach (var t in _tiles)
                 {
                     t.Dispose();
@@ -247,6 +340,15 @@ namespace JWFixMonitor
 
                 _tiles.Clear();
                 _grid.Controls.Clear();
+            }
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (WindowState == FormWindowState.Normal && Visible && IsHandleCreated)
+            {
+                Sync(); // anche al ritorno da ridotto a icona
             }
         }
 
@@ -283,6 +385,151 @@ namespace JWFixMonitor
         }
 
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Anteprima grande di ciò che è in TV, usata come telecomando: rotellina, clic e
+        /// tasti vanno alla finestra vera nello stesso punto.
+        /// </summary>
+        private sealed class RemoteView : Control
+        {
+            private const int Pad = 6, HintH = 26;
+            private readonly SwapPanel _panel;
+            private IntPtr _target;
+            private IntPtr _thumb;
+
+            public RemoteView(SwapPanel panel)
+            {
+                _panel = panel;
+                DoubleBuffered = true;
+                Cursor = Cursors.Cross;
+                SetStyle(ControlStyles.Selectable | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                         ControlStyles.ResizeRedraw, true);
+            }
+
+            private Rectangle Area => new Rectangle(Pad, Pad, Math.Max(1, Width - 2 * Pad), Math.Max(1, Height - 2 * Pad - HintH));
+
+            /// <summary>Dove sta davvero l'anteprima (stesse proporzioni della finestra), in coordinate del controllo.</summary>
+            private Box Preview
+            {
+                get
+                {
+                    var wr = Native.WindowRect(_target);
+                    var a = Area;
+                    return wr == null ? new Box() : Geometry.Fit(wr.Value.Width, wr.Value.Height, new Box(a.Left, a.Top, a.Right, a.Bottom));
+                }
+            }
+
+            public void SetTarget(IntPtr target)
+            {
+                if (target == _target)
+                {
+                    return;
+                }
+
+                Native.UnregisterThumbnail(_thumb);
+                _thumb = IntPtr.Zero;
+                _target = target;
+                if (target != IntPtr.Zero && _panel.IsHandleCreated)
+                {
+                    _thumb = Native.RegisterThumbnail(_panel.Handle, target);
+                }
+
+                Invalidate();
+            }
+
+            public void UpdateThumb()
+            {
+                if (_thumb == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                var p = Preview;
+                var screen = RectangleToScreen(new Rectangle(p.Left, p.Top, p.Width, p.Height));
+                var c = _panel.RectangleToClient(screen);
+                Native.ShowThumbnail(_thumb, new Box(c.Left, c.Top, c.Right, c.Bottom), Visible && _panel.Visible && !p.IsEmpty);
+            }
+
+            private bool ToScreen(Point pt, out int x, out int y)
+            {
+                x = y = 0;
+                var wr = Native.WindowRect(_target);
+                return wr != null && Geometry.MapPoint(Preview, wr.Value, pt.X, pt.Y, out x, out y);
+            }
+
+            protected override void OnMouseEnter(EventArgs e)
+            {
+                Focus(); // la rotellina arriva a chi ha il fuoco
+                base.OnMouseEnter(e);
+            }
+
+            protected override void OnMouseWheel(MouseEventArgs e)
+            {
+                // Ctrl tenuto premuto dall'utente vale anche per la finestra in TV: zoom.
+                // Un evento col nostro segno è uno dei nostri tornato indietro: lo ignoro
+                if (Native.GetMessageExtraInfo() != Native.RemoteMark && ToScreen(e.Location, out var x, out var y))
+                {
+                    Native.WheelAt(x, y, e.Delta);
+                }
+
+                base.OnMouseWheel(e);
+            }
+
+            protected override void OnMouseClick(MouseEventArgs e)
+            {
+                if (Native.GetMessageExtraInfo() != Native.RemoteMark && ToScreen(e.Location, out var x, out var y))
+                {
+                    if (e.Button == MouseButtons.Left)
+                    {
+                        Native.LeftClickAt(x, y);
+                    }
+                    else if (e.Button == MouseButtons.Right)
+                    {
+                        Native.RightClickAt(x, y);
+                    }
+
+                    _panel.TakeFocusBackSoon();
+                }
+
+                base.OnMouseClick(e);
+            }
+
+            protected override bool IsInputKey(Keys keyData) => true; // anche frecce, Tab, Invio, Esc
+
+            protected override void OnKeyDown(KeyEventArgs e)
+            {
+                var k = e.KeyCode;
+                if (k != Keys.ShiftKey && k != Keys.ControlKey && k != Keys.Menu && k != Keys.LWin && k != Keys.RWin)
+                {
+                    _panel.ForwardKey(k);
+                    e.Handled = e.SuppressKeyPress = true;
+                }
+
+                base.OnKeyDown(e);
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.Clear(Color.FromArgb(32, 32, 32));
+                var hint = new Rectangle(Pad, Height - Pad - HintH, Width - 2 * Pad, HintH);
+                TextRenderer.DrawText(g,
+                    (Focused ? "● " : "") + "Rotellina: scorri  ·  Ctrl+rotellina: zoom  ·  Clic: clicca in TV  ·  Tasti: vanno alla TV",
+                    Font, hint, Focused ? Color.FromArgb(120, 220, 140) : Color.Gainsboro,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+
+            protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+            protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+            protected override void OnResize(EventArgs e) { base.OnResize(e); UpdateThumb(); }
+
+            protected override void Dispose(bool disposing)
+            {
+                Native.UnregisterThumbnail(_thumb);
+                _thumb = IntPtr.Zero;
+                base.Dispose(disposing);
+            }
+        }
 
         /// <summary>Casella: anteprima (disegnata da DWM sopra) e titolo sotto.</summary>
         private sealed class Tile : Control

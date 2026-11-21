@@ -112,6 +112,24 @@ namespace JWFixMonitor
             return new Box(left, top, left + fw, top + fh);
         }
 
+        /// <summary>
+        /// Punto (px,py) sull'anteprima → stesso punto sulla finestra vera (coordinate schermo).
+        /// Falso se il punto è fuori dall'anteprima.
+        /// </summary>
+        public static bool MapPoint(Box preview, Box window, int px, int py, out int x, out int y)
+        {
+            x = y = 0;
+            if (preview.IsEmpty || window.IsEmpty ||
+                px < preview.Left || px >= preview.Right || py < preview.Top || py >= preview.Bottom)
+            {
+                return false;
+            }
+
+            x = window.Left + (int)((long)(px - preview.Left) * window.Width / preview.Width);
+            y = window.Top + (int)((long)(py - preview.Top) * window.Height / preview.Height);
+            return true;
+        }
+
         /// <summary>Rettangolo allargato di n pixel per lato.</summary>
         public static Box Grow(Box b, int n) => new Box(b.Left - n, b.Top - n, b.Right + n, b.Bottom + n);
 
