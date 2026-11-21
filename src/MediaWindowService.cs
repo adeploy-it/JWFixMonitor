@@ -36,6 +36,9 @@ namespace JWFixMonitor
         public event Action<string> StatusChanged;
         public event Action<string> Notification;
 
+        /// <summary>La finestra media agganciata non esiste più (chiusa in JW Library).</summary>
+        public event Action MediaWindowClosed;
+
         public MediaWindowService(Settings settings)
         {
             _settings = settings.Clone();
@@ -138,6 +141,7 @@ namespace JWFixMonitor
                 Log.Write("La finestra media è stata chiusa");
                 ForgetTracked();
                 frame = IntPtr.Zero;
+                MediaWindowClosed?.Invoke();
             }
 
             if (frame == IntPtr.Zero)
@@ -159,6 +163,7 @@ namespace JWFixMonitor
                 Log.Write("Finestra media trovata e pronta");
                 _trackedCore = core;
                 _announced = false;
+                _forcePlace = true; // applica sempre bordo e ritaglio alla finestra nuova
                 Interlocked.Exchange(ref _tracked, frame.ToInt64());
             }
 
@@ -173,7 +178,16 @@ namespace JWFixMonitor
         /// </summary>
         private static bool FindMediaWindow(out IntPtr frame, out IntPtr core)
         {
-            foreach (var h in Native.TopLevelWindows())
+            var candidates = Native.TopLevelWindows();
+            foreach (var h in Native.RootWindowsOnMonitors())
+            {
+                if (!candidates.Contains(h))
+                {
+                    candidates.Add(h);
+                }
+            }
+
+            foreach (var h in candidates)
             {
                 if (!Native.IsWindowVisible(h) || !Native.IsTopMost(h) ||
                     Native.ClassOf(h) != "ApplicationFrameWindow")
@@ -374,6 +388,8 @@ namespace JWFixMonitor
                 Native.ShowWindow(frame, Native.SW_RESTORE);
             }
 
+            Native.SetBorderless(frame, true);
+
             var zOrder = s.TopMost ? Native.HWND_TOPMOST : Native.HWND_NOTOPMOST;
             const uint flags = Native.SWP_NOACTIVATE | Native.SWP_NOCOPYBITS |
                                Native.SWP_NOSENDCHANGING | Native.SWP_NOOWNERZORDER;
@@ -389,9 +405,14 @@ namespace JWFixMonitor
                 }
 
                 var insets = Geometry.Insets(wr.Value, Native.VisibleFrame(frame));
-                var want = Geometry.TargetWindowRect(target.Bounds, insets);
+
+                // il bordo da 1px di Windows 11 sta dentro la cornice visibile: lo
+                // spingo fuori dallo schermo e ritaglio quello che sborda
+                var border = Native.VisibleBorderThickness(frame);
+                var want = Geometry.TargetWindowRect(Geometry.Grow(target.Bounds, border), insets);
 
                 Native.SetWindowPos(frame, zOrder, want.Left, want.Top, want.Width, want.Height, flags);
+                Native.ClipWindow(frame, border > 0 ? Geometry.RelativeTo(target.Bounds, want) : (Box?)null);
                 Thread.Sleep(attempt == 0 ? 300 : 150);
 
                 if (IsPlaced(frame, target, s, checkEnabled: false))
@@ -427,8 +448,9 @@ namespace JWFixMonitor
                 return false;
             }
 
+            // la cornice visibile include il bordo di Windows 11, spinto apposta fuori dallo schermo
             var ok = visible != null
-                ? Geometry.Matches(visible.Value, target.Bounds)
+                ? Geometry.Matches(visible.Value, Geometry.Grow(target.Bounds, Native.VisibleBorderThickness(frame)))
                 : Geometry.Matches(wr.Value, Geometry.TargetWindowRect(target.Bounds, Geometry.DefaultInsets));
 
             return ok &&
@@ -469,6 +491,8 @@ namespace JWFixMonitor
             }
 
             Native.EnableWindow(frame, true);
+            Native.SetBorderless(frame, false);
+            Native.ClipWindow(frame, null);
             _disabledByUs = false;
             _announced = false;
 

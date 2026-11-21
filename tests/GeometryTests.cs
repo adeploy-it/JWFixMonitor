@@ -24,6 +24,18 @@ namespace JWFixMonitor.Tests
         }
 
         [Fact]
+        public void Border_pushed_off_screen_and_clipped_to_monitor()
+        {
+            // TV 1920x1080 a destra del PC, bordo Windows 11 da 1px, bordi invisibili 7/0/7/7
+            var tv = new Box(1920, 0, 3840, 1080);
+            var want = Geometry.TargetWindowRect(Geometry.Grow(tv, 1), new Box(7, 0, 7, 7));
+            Assert.Equal(new[] { 1912, -1, 3848, 1088 }, new[] { want.Left, want.Top, want.Right, want.Bottom });
+
+            var clip = Geometry.RelativeTo(tv, want);
+            Assert.Equal(new[] { 8, 1, 1928, 1081 }, new[] { clip.Left, clip.Top, clip.Right, clip.Bottom });
+        }
+
+        [Fact]
         public void Insets_default_when_dwm_missing_or_absurd()
         {
             var wr = new Box(0, 0, 100, 100);

@@ -33,6 +33,29 @@ namespace JWFixMonitor
         public const int OBJID_WINDOW = 0;
 
         public const int SW_RESTORE = 9;
+        public const int SW_MINIMIZE = 6;
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x02, MOUSEEVENTF_LEFTUP = 0x04;
+
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT point);
+        [DllImport("user32.dll")] private static extern void mouse_event(uint flags, int dx, int dy, uint data, IntPtr extra);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int max);
+
+        public static string TitleOf(IntPtr hwnd)
+        {
+            var sb = new StringBuilder(256);
+            return GetWindowText(hwnd, sb, sb.Capacity) > 0 ? sb.ToString() : "";
+        }
+
+        /// <summary>Clic sinistro vero in un punto dello schermo; poi rimette il cursore dov'era.</summary>
+        public static void ClickAt(int x, int y)
+        {
+            GetCursorPos(out var old);
+            SetCursorPos(x, y);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+            SetCursorPos(old.X, old.Y);
+        }
         public const uint GA_ROOT = 2;
 
         public const uint INPUT_KEYBOARD = 1;
@@ -95,11 +118,69 @@ namespace JWFixMonitor
         public delegate void WinEventProc(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
 
         [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc proc, IntPtr lParam);
+        [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT point);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X, Y;
+        }
         [DllImport("user32.dll")] public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorEnumProc proc, IntPtr data);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX info);
         [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
         [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
         [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT value, int size);
+        [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")] private static extern int DwmGetWindowAttributeInt(IntPtr hwnd, int attr, out int value, int size);
+        [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+        [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr obj);
+        [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr hwnd, IntPtr rgn, bool redraw);
+
+        public const int DWMWA_VISIBLE_FRAME_BORDER_THICKNESS = 37;
+
+        /// <summary>Spessore del bordo che Windows 11 disegna dentro la cornice visibile (0 se non c'è).</summary>
+        public static int VisibleBorderThickness(IntPtr hwnd) =>
+            DwmGetWindowAttributeInt(hwnd, DWMWA_VISIBLE_FRAME_BORDER_THICKNESS, out var t, sizeof(int)) == 0 && t >= 0 && t <= 8
+                ? t
+                : 0;
+
+        /// <summary>
+        /// Ritaglia la finestra al rettangolo dato (in coordinate della finestra), così
+        /// quello che sborda non compare sugli schermi vicini. Box null = nessun ritaglio.
+        /// </summary>
+        public static void ClipWindow(IntPtr hwnd, Box? clip)
+        {
+            if (clip == null)
+            {
+                SetWindowRgn(hwnd, IntPtr.Zero, true);
+                return;
+            }
+
+            var c = clip.Value;
+            var rgn = CreateRectRgn(c.Left, c.Top, c.Right, c.Bottom);
+            if (SetWindowRgn(hwnd, rgn, true) == 0)
+            {
+                DeleteObject(rgn); // in caso di successo la regione appartiene a Windows
+            }
+        }
+
+        public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        public const int DWMWA_BORDER_COLOR = 34;
+        private const int DWMWCP_DEFAULT = 0, DWMWCP_DONOTROUND = 1;
+        private const int DWMWA_COLOR_DEFAULT = unchecked((int)0xFFFFFFFF), DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
+
+        /// <summary>
+        /// Toglie (o rimette) il bordo da 1px e gli angoli arrotondati che Windows 11
+        /// disegna attorno alle finestre. Sulle versioni senza questi attributi non fa nulla.
+        /// </summary>
+        public static void SetBorderless(IntPtr hwnd, bool borderless)
+        {
+            var corner = borderless ? DWMWCP_DONOTROUND : DWMWCP_DEFAULT;
+            var color = borderless ? DWMWA_COLOR_NONE : DWMWA_COLOR_DEFAULT;
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+            DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref color, sizeof(int));
+        }
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
@@ -144,6 +225,37 @@ namespace JWFixMonitor
         {
             var list = new List<IntPtr>();
             EnumWindows((h, _) => { list.Add(h); return true; }, IntPtr.Zero);
+            return list;
+        }
+
+        /// <summary>
+        /// Finestre radice visibili in alcuni punti di ogni schermo. Serve perché le
+        /// finestre UWP a schermo intero stanno in una "band" immersiva che EnumWindows
+        /// (su Windows 11 recenti) non restituisce, mentre WindowFromPoint sì.
+        /// </summary>
+        public static List<IntPtr> RootWindowsOnMonitors()
+        {
+            var list = new List<IntPtr>();
+            foreach (var m in Monitors())
+            {
+                var b = m.Bounds;
+                foreach (var (fx, fy) in new[] { (0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75) })
+                {
+                    var pt = new POINT { X = b.Left + (int)(b.Width * fx), Y = b.Top + (int)(b.Height * fy) };
+                    var h = WindowFromPoint(pt);
+                    if (h == IntPtr.Zero)
+                    {
+                        continue;
+                    }
+
+                    var root = GetAncestor(h, GA_ROOT);
+                    if (root != IntPtr.Zero && !list.Contains(root))
+                    {
+                        list.Add(root);
+                    }
+                }
+            }
+
             return list;
         }
 
