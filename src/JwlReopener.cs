@@ -6,7 +6,8 @@ namespace JWFixMonitor
 {
     /// <summary>
     /// Riapre la finestra media di JW Library facendo quello che farebbe l'utente:
-    /// Home → Impostazioni → "Riapri" → Chiudi → Indietro. Usa UI Automation, quindi
+    /// Home → Impostazioni → "Riapri" → Chiudi. JW resta su Home: andare su Home mette
+    /// in pausa un video in corso e "Indietro" non è affidabile. Usa UI Automation, quindi
     /// dipende dall'interfaccia (e dalla lingua italiana) di JW Library 15.x.
     /// Sincrono (5–15 s): da chiamare fuori dal thread dell'interfaccia.
     /// </summary>
@@ -20,7 +21,6 @@ namespace JWFixMonitor
         private const string ReopenName = "Riapri";
         private const string SecondScreenToggleName = "Riproduci video sullo schermo secondario";
         private const string CloseId = "CloseButton";
-        private const string BackId = "Back";
 
         public static bool TryReopen(out string error)
         {
@@ -46,8 +46,7 @@ namespace JWFixMonitor
 
                 // Impostazioni già aperte? Allora "Riapri" è già lì
                 var reopen = Find(root, ByName(ReopenName), 500);
-                var navigated = reopen == null;
-                if (navigated && !OpenSettings(root, out error))
+                if (reopen == null && !OpenSettings(root, out error))
                 {
                     return false;
                 }
@@ -81,12 +80,6 @@ namespace JWFixMonitor
                 {
                     Invoke(close);
                     Thread.Sleep(500);
-                }
-
-                var back = navigated ? Find(root, ById(BackId), 1000) : null;
-                if (back != null && back.Current.IsEnabled)
-                {
-                    Invoke(back); // torna alla pagina in cui era l'utente
                 }
 
                 Log.Write("Riapertura finestra media: fatto");

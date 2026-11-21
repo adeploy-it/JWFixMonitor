@@ -23,6 +23,8 @@ namespace JWFixMonitor
         private readonly ToolStripMenuItem _topMostItem;
         private readonly ToolStripMenuItem _notifyItem;
         private readonly ToolStripMenuItem _startupItem;
+        private bool _offerReopen;   // l'ultima notifica mostrata propone la riapertura
+        private int _reopening;      // 1 mentre la riapertura è in corso
 
         public TrayApp()
         {
@@ -50,6 +52,7 @@ namespace JWFixMonitor
             menu.Items.Add(_startupItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Sistema di nuovo adesso", null, (s, e) => _service.PlaceNow());
+            menu.Items.Add("Riapri finestra media", null, (s, e) => Reopen());
             menu.Items.Add("Apri il registro (log)", null, (s, e) => OpenLog());
             menu.Items.Add("Esci", null, (s, e) => ExitThread());
             menu.Opening += (s, e) => RefreshMenu();
@@ -64,8 +67,21 @@ namespace JWFixMonitor
 
             _service = new MediaWindowService(_settings);
             _service.StatusChanged += status => _ui.Post(_ => ShowStatus(status), null);
-            _service.Notification += text => _ui.Post(_ =>
-                _icon.ShowBalloonTip(3000, "JWFixMonitor", text, ToolTipIcon.Info), null);
+            _service.Notification += text => _ui.Post(_ => ShowBalloon(text, offerReopen: false), null);
+
+            // finestra media chiusa: propongo di riaprirla. È una domanda, non un
+            // semplice avviso, quindi compare anche con "Mostra notifiche" spento
+            _service.MediaWindowClosed += () => _ui.Post(_ => ShowBalloon(
+                "La finestra media di JW Library è stata chiusa. Clicca per riaprirla.", offerReopen: true, timeoutMs: 10000), null);
+            _icon.BalloonTipClicked += (s, e) =>
+            {
+                if (_offerReopen)
+                {
+                    _offerReopen = false;
+                    Reopen();
+                }
+            };
+            _icon.BalloonTipClosed += (s, e) => _offerReopen = false;
 
             // eventi di Windows: invece di controllare di continuo, mi sveglio quando
             // compare una finestra o quando quella media si sposta o si chiude
@@ -86,6 +102,45 @@ namespace JWFixMonitor
 
             _service.Start();
             RefreshMenu();
+        }
+
+        private void ShowBalloon(string text, bool offerReopen, int timeoutMs = 3000)
+        {
+            _offerReopen = offerReopen;
+            _icon.ShowBalloonTip(timeoutMs, "JWFixMonitor", text, ToolTipIcon.Info);
+        }
+
+        /// <summary>Riapre la finestra media in JW Library, su un thread a parte; una volta sola alla volta.</summary>
+        private void Reopen()
+        {
+            if (Interlocked.CompareExchange(ref _reopening, 1, 0) != 0)
+            {
+                return;
+            }
+
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    if (JwlReopener.TryReopen(out var error))
+                    {
+                        _service.PlaceNow();
+                    }
+                    else
+                    {
+                        Log.Write("Riapertura finestra media non riuscita: " + error);
+                        _ui.Post(_ => ShowBalloon(
+                            "Non riesco a riaprirla (" + error + "): in JW Library vai su Home → Impostazioni → Riapri",
+                            offerReopen: false, timeoutMs: 10000), null);
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _reopening, 0);
+                }
+            }) { IsBackground = true, Name = "JWFixMonitor riapertura" };
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
         }
 
         protected override void ExitThreadCore()

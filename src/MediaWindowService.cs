@@ -36,6 +36,9 @@ namespace JWFixMonitor
         public event Action<string> StatusChanged;
         public event Action<string> Notification;
 
+        /// <summary>La finestra media agganciata non esiste più (chiusa in JW Library).</summary>
+        public event Action MediaWindowClosed;
+
         public MediaWindowService(Settings settings)
         {
             _settings = settings.Clone();
@@ -138,6 +141,7 @@ namespace JWFixMonitor
                 Log.Write("La finestra media è stata chiusa");
                 ForgetTracked();
                 frame = IntPtr.Zero;
+                MediaWindowClosed?.Invoke();
             }
 
             if (frame == IntPtr.Zero)
