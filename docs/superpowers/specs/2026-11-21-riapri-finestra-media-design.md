@@ -25,7 +25,10 @@ farla ricomparire sulla TV bisogna andare in JW Library → Home → Impostazion
 5. Pulsante `Riapri` (compare sotto "La finestra dello schermo secondario è
    stata chiusa") → Invoke. Se manca ma l'interruttore "Riproduci video sullo
    schermo secondario" è spento, lo accende.
-6. `CloseButton` → Invoke. JW resta su Home: andare su Home mette in pausa un video in corso; il ritorno alla pagina di prima è stato tolto su richiesta (Indietro non affidabile).
+6. `CloseButton` → Invoke. Poi clic sulla sezione di prima (Biblioteca,
+   Adunanze…: il player resta aperto lì) e, se il video andava, Invoke su
+   `TogglePlaybackButton` "Riproduci" (andare su Home lo mette in pausa).
+   "Indietro" scartato: non affidabile. Provato dall'utente il 21/11/2026.
 7. Se JW era minimizzata la riminimizza; ridà il fuoco alla finestra di prima.
 8. Il servizio aggancia la nuova finestra al giro successivo (già funziona).
 
