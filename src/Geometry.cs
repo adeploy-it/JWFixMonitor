@@ -27,9 +27,32 @@ namespace JWFixMonitor
         public Box Bounds;
         public bool IsPrimary;
         public int Number;      // numerazione da sinistra a destra, da 1
+        public string Path = "";  // percorso del monitor (DisplayConfig), legato a connettore + monitor
+        public string Model = ""; // codice EDID, es. SAM0F9E
+        public string Name = "";  // nome del monitor, es. SAMSUNG
 
         public string Label =>
-            $"Schermo {Number} — {Bounds.Width}×{Bounds.Height}" + (IsPrimary ? " (principale)" : "");
+            $"Schermo {Number} — " + (string.IsNullOrEmpty(Name) ? "" : Name + " ") +
+            $"{Bounds.Width}×{Bounds.Height}" + (IsPrimary ? " (principale)" : "");
+    }
+
+    /// <summary>Schermo scelto dall'utente, con quanto serve per ritrovarlo se Windows lo rinomina.</summary>
+    internal sealed class MonitorChoice
+    {
+        public string Device = "";
+        public string Path = "";
+        public string Model = "";
+        public int Width, Height;
+
+        public static MonitorChoice Auto => new MonitorChoice();
+
+        public bool IsAuto => string.IsNullOrEmpty(Device) && string.IsNullOrEmpty(Path) && string.IsNullOrEmpty(Model);
+
+        public static MonitorChoice From(MonitorDesc m) => new MonitorChoice
+        {
+            Device = m.Device ?? "", Path = m.Path ?? "", Model = m.Model ?? "",
+            Width = m.Bounds.Width, Height = m.Bounds.Height
+        };
     }
 
     /// <summary>Calcoli puri, senza chiamate a Windows: testabili.</summary>
@@ -73,6 +96,40 @@ namespace JWFixMonitor
                 monitor.Right + insets.Right,
                 monitor.Bottom + insets.Bottom);
 
+        /// <summary>Rettangolo w×h ingrandito/rimpicciolito per stare nella casella, centrato, senza deformarlo.</summary>
+        public static Box Fit(int w, int h, Box box)
+        {
+            if (w <= 0 || h <= 0 || box.IsEmpty)
+            {
+                return new Box();
+            }
+
+            var scale = Math.Min((double)box.Width / w, (double)box.Height / h);
+            var fw = (int)Math.Round(w * scale);
+            var fh = (int)Math.Round(h * scale);
+            var left = box.Left + (box.Width - fw) / 2;
+            var top = box.Top + (box.Height - fh) / 2;
+            return new Box(left, top, left + fw, top + fh);
+        }
+
+        /// <summary>
+        /// Punto (px,py) sull'anteprima → stesso punto sulla finestra vera (coordinate schermo).
+        /// Falso se il punto è fuori dall'anteprima.
+        /// </summary>
+        public static bool MapPoint(Box preview, Box window, int px, int py, out int x, out int y)
+        {
+            x = y = 0;
+            if (preview.IsEmpty || window.IsEmpty ||
+                px < preview.Left || px >= preview.Right || py < preview.Top || py >= preview.Bottom)
+            {
+                return false;
+            }
+
+            x = window.Left + (int)((long)(px - preview.Left) * window.Width / preview.Width);
+            y = window.Top + (int)((long)(py - preview.Top) * window.Height / preview.Height);
+            return true;
+        }
+
         /// <summary>Rettangolo allargato di n pixel per lato.</summary>
         public static Box Grow(Box b, int n) => new Box(b.Left - n, b.Top - n, b.Right + n, b.Bottom + n);
 
@@ -87,28 +144,34 @@ namespace JWFixMonitor
             Math.Abs(a.Right - b.Right) <= tolerance &&
             Math.Abs(a.Bottom - b.Bottom) <= tolerance;
 
+        /// <summary>Codice del modello dal percorso del monitor (\\?\DISPLAY#SAM0F9E#...), o "".</summary>
+        public static string ModelOf(string path)
+        {
+            var parts = (path ?? "").Split('#');
+            return parts.Length >= 3 ? parts[1] : "";
+        }
+
+        public static MonitorDesc ChooseMonitor(IList<MonitorDesc> monitors, string preferredDevice, string currentDevice) =>
+            ChooseMonitor(monitors, new MonitorChoice { Device = preferredDevice ?? "" }, currentDevice);
+
         /// <summary>
         /// Sceglie lo schermo di destinazione.
-        /// 1) quello scelto dall'utente, se collegato;
+        /// 1) quello scelto dall'utente, se collegato (vedi FindChosen);
         /// 2) con un solo schermo: nessuno (non ha senso spostare);
         /// 3) quello dove sta già la finestra, se non è il principale;
         /// 4) il primo schermo secondario da sinistra.
         /// </summary>
-        public static MonitorDesc ChooseMonitor(IList<MonitorDesc> monitors, string preferredDevice, string currentDevice)
+        public static MonitorDesc ChooseMonitor(IList<MonitorDesc> monitors, MonitorChoice choice, string currentDevice)
         {
             if (monitors == null || monitors.Count == 0)
             {
                 return null;
             }
 
-            if (!string.IsNullOrEmpty(preferredDevice))
+            var chosen = FindChosen(monitors, choice);
+            if (chosen != null)
             {
-                var preferred = monitors.FirstOrDefault(m =>
-                    string.Equals(m.Device, preferredDevice, StringComparison.OrdinalIgnoreCase));
-                if (preferred != null)
-                {
-                    return preferred;
-                }
+                return chosen;
             }
 
             if (monitors.Count == 1)
@@ -126,6 +189,33 @@ namespace JWFixMonitor
             return monitors.Where(m => !m.IsPrimary)
                 .OrderBy(m => m.Bounds.Left).ThenBy(m => m.Bounds.Top)
                 .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Ritrova lo schermo scelto anche se Windows l'ha rinominato: stesso percorso
+        /// monitor; stesso modello se unico (TV e timer possono essere uguali); stesso
+        /// nome Windows; stessa risoluzione se unica tra i secondari. Altrimenti null.
+        /// </summary>
+        public static MonitorDesc FindChosen(IList<MonitorDesc> monitors, MonitorChoice c)
+        {
+            if (c == null || c.IsAuto)
+            {
+                return null;
+            }
+
+            bool same(string a, string b) => !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            MonitorDesc single(IEnumerable<MonitorDesc> found)
+            {
+                var list = found.Take(2).ToList();
+                return list.Count == 1 ? list[0] : null;
+            }
+
+            return single(monitors.Where(m => same(c.Path, m.Path)))
+                ?? single(monitors.Where(m => same(c.Model, m.Model)))
+                ?? single(monitors.Where(m => same(c.Device, m.Device)))
+                ?? (c.Width > 0 && c.Height > 0
+                    ? single(monitors.Where(m => !m.IsPrimary && m.Bounds.Width == c.Width && m.Bounds.Height == c.Height))
+                    : null);
         }
 
         /// <summary>Numera gli schermi da sinistra a destra (poi dall'alto).</summary>

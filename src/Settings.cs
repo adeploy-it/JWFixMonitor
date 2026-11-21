@@ -10,7 +10,25 @@ namespace JWFixMonitor
         public bool Enabled = true;
         public bool TopMost = true;
         public bool Notifications = true;
-        public string TargetDevice = "";   // vuoto = automatico
+        public string TargetDevice = "";   // vuoto (e niente percorso/modello) = automatico
+        public string TargetPath = "";     // percorso del monitor scelto
+        public string TargetModel = "";    // modello del monitor scelto
+        public int TargetWidth, TargetHeight;
+
+        public MonitorChoice Choice
+        {
+            get => new MonitorChoice
+            {
+                Device = TargetDevice ?? "", Path = TargetPath ?? "", Model = TargetModel ?? "",
+                Width = TargetWidth, Height = TargetHeight
+            };
+            set
+            {
+                var c = value ?? MonitorChoice.Auto;
+                TargetDevice = c.Device; TargetPath = c.Path; TargetModel = c.Model;
+                TargetWidth = c.Width; TargetHeight = c.Height;
+            }
+        }
 
         public Settings Clone() => (Settings)MemberwiseClone();
 
@@ -52,6 +70,9 @@ namespace JWFixMonitor
             sb.AppendLine("TopMost=" + TopMost);
             sb.AppendLine("Notifications=" + Notifications);
             sb.AppendLine("TargetDevice=" + TargetDevice);
+            sb.AppendLine("TargetPath=" + TargetPath);
+            sb.AppendLine("TargetModel=" + TargetModel);
+            sb.AppendLine("TargetSize=" + TargetWidth + "x" + TargetHeight);
             return sb.ToString();
         }
 
@@ -78,7 +99,18 @@ namespace JWFixMonitor
             s.Enabled = b("Enabled", s.Enabled);
             s.TopMost = b("TopMost", s.TopMost);
             s.Notifications = b("Notifications", s.Notifications);
-            s.TargetDevice = values.TryGetValue("TargetDevice", out var d) ? d : "";
+            string str(string key) => values.TryGetValue(key, out var v) ? v : "";
+            s.TargetDevice = str("TargetDevice");
+            s.TargetPath = str("TargetPath");
+            s.TargetModel = str("TargetModel");
+
+            var size = str("TargetSize").Split('x');
+            if (size.Length == 2 && int.TryParse(size[0], out var w) && int.TryParse(size[1], out var h) && w > 0 && h > 0)
+            {
+                s.TargetWidth = w;
+                s.TargetHeight = h;
+            }
+
             return s;
         }
     }

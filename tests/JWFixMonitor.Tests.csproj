@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="..\src\Geometry.cs" Link="Geometry.cs" />
     <Compile Include="..\src\Settings.cs" Link="Settings.cs" />
+    <Compile Include="..\src\WindowFilter.cs" Link="WindowFilter.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
