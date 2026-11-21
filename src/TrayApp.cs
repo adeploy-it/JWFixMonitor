@@ -102,6 +102,7 @@ namespace JWFixMonitor
             _hotkeys = new Hotkeys();
             _hotkeys.AddCtrlAlt(Keys.T, SendForegroundToTv);
             _hotkeys.AddCtrlAlt(Keys.J, () => BackToJw("Ctrl+Alt+J"));
+            _hotkeys.AddCtrlAlt(Keys.P, () => _panel.ShowPanel());
 
             // eventi di Windows: invece di controllare di continuo, mi sveglio quando
             // compare una finestra o quando quella media si sposta o si chiude

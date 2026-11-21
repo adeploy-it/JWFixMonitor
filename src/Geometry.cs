@@ -96,6 +96,22 @@ namespace JWFixMonitor
                 monitor.Right + insets.Right,
                 monitor.Bottom + insets.Bottom);
 
+        /// <summary>Rettangolo w×h ingrandito/rimpicciolito per stare nella casella, centrato, senza deformarlo.</summary>
+        public static Box Fit(int w, int h, Box box)
+        {
+            if (w <= 0 || h <= 0 || box.IsEmpty)
+            {
+                return new Box();
+            }
+
+            var scale = Math.Min((double)box.Width / w, (double)box.Height / h);
+            var fw = (int)Math.Round(w * scale);
+            var fh = (int)Math.Round(h * scale);
+            var left = box.Left + (box.Width - fw) / 2;
+            var top = box.Top + (box.Height - fh) / 2;
+            return new Box(left, top, left + fw, top + fh);
+        }
+
         /// <summary>Rettangolo allargato di n pixel per lato.</summary>
         public static Box Grow(Box b, int n) => new Box(b.Left - n, b.Top - n, b.Right + n, b.Bottom + n);
 

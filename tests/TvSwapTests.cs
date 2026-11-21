@@ -10,6 +10,21 @@ namespace JWFixMonitor.Tests
         };
 
         [Fact]
+        public void Preview_fits_box_keeping_proportions_centered()
+        {
+            var box = new Box(10, 20, 230, 144); // 220x124
+            var wide = Geometry.Fit(1920, 1080, box);  // 16:9 riempie in larghezza
+            Assert.Equal(new[] { 10, 20, 230, 144 }, new[] { wide.Left, wide.Top, wide.Right, wide.Bottom });
+
+            var tall = Geometry.Fit(600, 1200, box);   // verticale: centrata, bande ai lati
+            Assert.Equal(124, tall.Height);
+            Assert.Equal(62, tall.Width);
+            Assert.Equal(10 + (220 - 62) / 2, tall.Left);
+
+            Assert.True(Geometry.Fit(0, 0, box).IsEmpty);
+        }
+
+        [Fact]
         public void Normal_app_window_can_go_on_tv()
         {
             Assert.True(WindowFilter.CanSend(Pdf()));
