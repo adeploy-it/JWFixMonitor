@@ -73,6 +73,14 @@ namespace JWFixMonitor
                 monitor.Right + insets.Right,
                 monitor.Bottom + insets.Bottom);
 
+        /// <summary>Rettangolo allargato di n pixel per lato.</summary>
+        public static Box Grow(Box b, int n) => new Box(b.Left - n, b.Top - n, b.Right + n, b.Bottom + n);
+
+        /// <summary>Converte un rettangolo dello schermo in coordinate relative alla finestra.</summary>
+        public static Box RelativeTo(Box screen, Box window) =>
+            new Box(screen.Left - window.Left, screen.Top - window.Top,
+                    screen.Right - window.Left, screen.Bottom - window.Top);
+
         public static bool Matches(Box a, Box b, int tolerance = 2) =>
             Math.Abs(a.Left - b.Left) <= tolerance &&
             Math.Abs(a.Top - b.Top) <= tolerance &&
