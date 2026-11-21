@@ -300,7 +300,9 @@ namespace JWFixMonitor
             switch (evt)
             {
                 case Native.EVENT_OBJECT_SHOW:
-                    if (Native.ClassOf(hwnd) == "ApplicationFrameWindow")
+                    // finestra UWP (forse quella media) o una "sempre in primo piano" che
+                    // potrebbe coprire la TV (es. il bordo di condivisione di Zoom)
+                    if (Native.ClassOf(hwnd) == "ApplicationFrameWindow" || Native.IsTopMost(hwnd))
                     {
                         _service.Wake();
                     }

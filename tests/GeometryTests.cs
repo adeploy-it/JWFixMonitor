@@ -189,6 +189,16 @@ namespace JWFixMonitor.Tests
         }
 
         [Fact]
+        public void Overlay_on_tv_edge_intersects_but_window_beside_tv_does_not()
+        {
+            var tv = new Box(1920, 0, 3840, 1080);
+            Assert.True(Geometry.Intersects(new Box(1920, 0, 3840, 6), tv));     // bordo in alto sulla TV
+            Assert.True(Geometry.Intersects(new Box(1900, 100, 1925, 200), tv)); // a cavallo
+            Assert.False(Geometry.Intersects(new Box(0, 0, 1920, 1080), tv));    // PC accanto: si toccano soltanto
+            Assert.False(Geometry.Intersects(new Box(2000, 100, 2000, 300), tv)); // vuoto
+        }
+
+        [Fact]
         public void Label_shows_monitor_name()
         {
             L.Lang = "it";

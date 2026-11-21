@@ -149,6 +149,32 @@ namespace JWFixMonitor
             keybd_event(vk, 0, ext | KEYEVENTF_KEYUP, IntPtr.Zero);
         }
 
+        private const uint GW_HWNDPREV = 3;
+
+        /// <summary>
+        /// Prima finestra visibile che sta sopra hwnd (ordine z) e copre almeno in parte area:
+        /// es. il bordo verde che Zoom disegna sullo schermo condiviso. Zero se nessuna.
+        /// </summary>
+        public static IntPtr WindowAbove(IntPtr hwnd, Box area)
+        {
+            var me = (uint)Process.GetCurrentProcess().Id;
+            for (var h = GetWindow(hwnd, GW_HWNDPREV); h != IntPtr.Zero; h = GetWindow(h, GW_HWNDPREV))
+            {
+                if (!IsWindowVisible(h) || IsIconic(h) || IsCloaked(h) || ProcessIdOf(h) == me)
+                {
+                    continue;
+                }
+
+                var r = WindowRect(h);
+                if (r != null && Geometry.Intersects(r.Value, area))
+                {
+                    return h;
+                }
+            }
+
+            return IntPtr.Zero;
+        }
+
         public static WINDOWPLACEMENT? PlacementOf(IntPtr hwnd)
         {
             var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf(typeof(WINDOWPLACEMENT)) };

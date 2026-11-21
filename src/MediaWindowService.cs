@@ -27,6 +27,8 @@ namespace JWFixMonitor
         private volatile bool _stopping;
         private volatile bool _forcePlace;
         private volatile bool _covered;       // in TV c'è un'altra finestra
+        private DateTime _lastRaise = DateTime.MinValue;
+        private IntPtr _lastAbove;
         private long _tracked;               // HWND della finestra media già convertita
         private IntPtr _trackedCore;
         private bool _disabledByUs;
@@ -421,6 +423,7 @@ namespace JWFixMonitor
 
             if (!force && IsPlaced(frame, target, s))
             {
+                StayOnTop(frame, target, s);
                 SetStatus(L.F("MediaOn", target.Label));
                 return;
             }
@@ -479,6 +482,7 @@ namespace JWFixMonitor
                       (placed ? "OK" : $"non precisa, finestra {Native.VisibleFrame(frame)}"));
 
             SetStatus(placed ? L.F("MediaOn", target.Label) : L.T("NotPrecise"));
+            StayOnTop(frame, target, s);
 
             if (placed && !_announced && s.Notifications)
             {
@@ -505,6 +509,36 @@ namespace JWFixMonitor
                    Native.IsTopMost(frame) == s.TopMost &&
                    !Native.IsIconic(frame) &&
                    (!checkEnabled || !Native.IsWindowEnabled(frame));
+        }
+
+        /// <summary>
+        /// Un'altra finestra "sempre in primo piano" sopra la finestra media sulla TV
+        /// (es. il bordo verde di Zoom durante la condivisione): rimetto JW in cima.
+        /// Prima, a schermo intero UWP, JW stava sopra a tutto da sola.
+        /// </summary>
+        private void StayOnTop(IntPtr frame, MonitorDesc target, Settings s)
+        {
+            if (!s.TopMost || DateTime.UtcNow - _lastRaise < TimeSpan.FromSeconds(1))
+            {
+                return; // al massimo una volta al secondo: niente gara con chi si rimette sopra
+            }
+
+            var above = Native.WindowAbove(frame, target.Bounds);
+            if (above == IntPtr.Zero)
+            {
+                return;
+            }
+
+            _lastRaise = DateTime.UtcNow;
+            if (above != _lastAbove)
+            {
+                _lastAbove = above;
+                Log.Write($"Sopra la finestra media sulla TV c'era \"{Native.TitleOf(above)}\" " +
+                          $"({Native.ClassOf(above)}, {Native.ProcessNameOf(above)}): rimetto JW in cima");
+            }
+
+            Native.SetWindowPos(frame, Native.HWND_TOPMOST, 0, 0, 0, 0,
+                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
         }
 
         private bool AllowPlacement()
