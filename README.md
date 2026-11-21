@@ -97,3 +97,7 @@ clic.
 - La TV se recuerda por modelo y resolución (útil con 3 pantallas).
 - **Iniciar con Windows**: opción del menú, solo para el usuario actual, sin
   permisos de administrador.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
