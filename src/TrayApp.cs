@@ -26,7 +26,10 @@ namespace JWFixMonitor
         private readonly TvSwap _swap;
         private readonly SwapPanel _panel;
         private readonly Hotkeys _hotkeys;
-        private bool _offerReopen;   // l'ultima notifica mostrata propone la riapertura
+        private readonly ToolStripMenuItem _checkUpdatesItem;
+        private readonly ToolStripMenuItem _downloadItem;
+        private readonly UpdateChecker _updates;
+        private Action _balloonClick; // cosa fa il clic sull'ultima notifica (riapri, scarica…)
         private int _reopening;      // 1 mentre la riapertura è in corso
 
         public TrayApp()
@@ -44,8 +47,12 @@ namespace JWFixMonitor
                 Startup.Set(!Startup.IsEnabled, Application.ExecutablePath);
                 RefreshMenu();
             });
+            _checkUpdatesItem = new ToolStripMenuItem(L.T("CheckUpdates"), null, (s, e) => Toggle(ref _settings.CheckUpdates));
+            _downloadItem = new ToolStripMenuItem("", null, (s, e) => OpenDownload(_updates.Available)) { Visible = false };
+            _downloadItem.Font = new Font(_downloadItem.Font, FontStyle.Bold);
 
             var menu = new ContextMenuStrip();
+            menu.Items.Add(_downloadItem);
             menu.Items.Add(_statusItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(_enabledItem);
@@ -60,6 +67,8 @@ namespace JWFixMonitor
             menu.Items.Add(L.T("WhatsOnTv"), null, (s, e) => _panel.ShowPanel());
             menu.Items.Add(L.T("BackToJwMenu"), null, (s, e) => BackToJw("menu"));
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(_checkUpdatesItem);
+            menu.Items.Add(L.T("CheckUpdatesNow"), null, (s, e) => CheckUpdatesNow());
             menu.Items.Add(L.T("OpenLog"), null, (s, e) => OpenLog());
             menu.Items.Add(L.T("Exit"), null, (s, e) => ExitThread());
             menu.Opening += (s, e) => RefreshMenu();
@@ -81,13 +90,15 @@ namespace JWFixMonitor
             _service.MediaWindowClosed += OnMediaWindowClosed;
             _icon.BalloonTipClicked += (s, e) =>
             {
-                if (_offerReopen)
-                {
-                    _offerReopen = false;
-                    Reopen();
-                }
+                var action = _balloonClick;
+                _balloonClick = null;
+                action?.Invoke();
             };
-            _icon.BalloonTipClosed += (s, e) => _offerReopen = false;
+            _icon.BalloonTipClosed += (s, e) => _balloonClick = null;
+
+            // nuove versioni: controllo su GitHub all'avvio e ogni 12 ore
+            _updates = new UpdateChecker(typeof(TrayApp).Assembly.GetName().Version);
+            _updates.Found += release => _ui.Post(_ => OnUpdateFound(release), null);
 
             // un'altra finestra in TV al posto di JW: pannello (clic sull'icona) e scorciatoie
             _swap = new TvSwap(_service);
@@ -132,13 +143,72 @@ namespace JWFixMonitor
             }
 
             _service.Start();
+            if (_settings.CheckUpdates)
+            {
+                _updates.Start();
+            }
+
             RefreshMenu();
         }
 
-        private void ShowBalloon(string text, bool offerReopen, int timeoutMs = 3000)
+        private void ShowBalloon(string text, bool offerReopen, int timeoutMs = 3000) =>
+            ShowBalloon(text, offerReopen ? Reopen : (Action)null, timeoutMs);
+
+        private void ShowBalloon(string text, Action onClick, int timeoutMs)
         {
-            _offerReopen = offerReopen;
+            _balloonClick = onClick;
             _icon.ShowBalloonTip(timeoutMs, "JWFixMonitor", text, ToolTipIcon.Info);
+        }
+
+        private static string CurrentVersion
+        {
+            get
+            {
+                var v = typeof(TrayApp).Assembly.GetName().Version;
+                return v.Major + "." + v.Minor + "." + Math.Max(v.Build, 0);
+            }
+        }
+
+        /// <summary>Trovata in automatico una versione nuova: la propongo (una volta per versione).</summary>
+        private void OnUpdateFound(Release release)
+        {
+            RefreshMenu();
+            ShowBalloon(L.F("UpdateAvailable", release.Tag.TrimStart('v', 'V'), CurrentVersion),
+                () => OpenDownload(release), timeoutMs: 15000);
+        }
+
+        private void CheckUpdatesNow()
+        {
+            _updates.CheckNow((release, error) => _ui.Post(_ =>
+            {
+                RefreshMenu();
+                if (release != null)
+                {
+                    OnUpdateFound(release);
+                }
+                else if (error != null)
+                {
+                    ShowBalloon(L.F("UpdateCheckFailed", error), offerReopen: false, timeoutMs: 5000);
+                }
+                else
+                {
+                    ShowBalloon(L.F("UpToDate", CurrentVersion), offerReopen: false);
+                }
+            }, null));
+        }
+
+        /// <summary>Apre nel browser la pagina della release, da cui scaricare il nuovo exe.</summary>
+        private static void OpenDownload(Release release)
+        {
+            var url = release?.PageUrl ?? Updates.ReleasesPage;
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Log.Write("Impossibile aprire " + url + ": " + ex.Message);
+            }
         }
 
         /// <summary>
@@ -263,6 +333,7 @@ namespace JWFixMonitor
 
             _hotkeys.Dispose();
             _panel.Dispose();
+            _updates.Dispose();
 
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
@@ -342,6 +413,15 @@ namespace JWFixMonitor
         {
             _settings.Save();
             _service.UpdateSettings(_settings);
+            if (_settings.CheckUpdates)
+            {
+                _updates.Start();
+            }
+            else
+            {
+                _updates.Stop();
+            }
+
             RefreshMenu();
         }
 
@@ -351,6 +431,13 @@ namespace JWFixMonitor
             _topMostItem.Checked = _settings.TopMost;
             _notifyItem.Checked = _settings.Notifications;
             _startupItem.Checked = Startup.IsEnabled;
+            _checkUpdatesItem.Checked = _settings.CheckUpdates;
+            var available = _updates?.Available;
+            _downloadItem.Visible = available != null;
+            if (available != null)
+            {
+                _downloadItem.Text = L.F("DownloadUpdate", available.Tag.TrimStart('v', 'V'));
+            }
             ShowStatus(_service?.Status ?? L.T("Starting"));
 
             _monitorMenu.DropDownItems.Clear();

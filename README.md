@@ -29,6 +29,10 @@ Windows display language (English for any other language).
   - **Ctrl+Alt+T** sends the window you're using to the TV.
   - If the window on the TV is closed, JW Library comes back by itself.
 - **TV off or unplugged**: releases the media window; puts it back when the TV returns.
+- **Update notice**: at start and every 12 hours it asks GitHub for the latest
+  release; if there is a newer one, a notification (and a menu item) opens its
+  download page. Nothing is installed automatically. Can be turned off
+  (*Check for updates*).
 - Lightweight: one small exe, .NET Framework 4.8 (already in Windows 10/11).
 
 ## Usage
@@ -39,7 +43,8 @@ Windows display language (English for any other language).
 
 Tray menu (right click): Enabled, Media window screen, Always on top, Show
 notifications, **Start with Windows**, Fix position now, Reopen media window,
-What's on TV…, Back to JW on TV, Open log, Exit.
+What's on TV…, Back to JW on TV, Check for updates, Check for updates now,
+Open log, Exit.
 
 **Start with Windows** adds JWFixMonitor to the current user's startup programs
 (registry key `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`); no admin
@@ -80,6 +85,9 @@ PDF, la seconda finestra di Zoom…) al posto di JW e tornare a JW con un clic.
 - La TV viene ricordata per modello e risoluzione (comodo con 3 schermi).
 - **Avvia con Windows**: voce del menu, solo per l'utente corrente, senza
   permessi di amministratore.
+- **Aggiornamenti**: all'avvio e ogni 12 ore controlla su GitHub se c'è una
+  versione nuova; se sì, una notifica (e una voce del menu) apre la pagina per
+  scaricarla. Si disattiva con *Controlla aggiornamenti*.
 
 ## Español
 
@@ -97,6 +105,9 @@ clic.
 - La TV se recuerda por modelo y resolución (útil con 3 pantallas).
 - **Iniciar con Windows**: opción del menú, solo para el usuario actual, sin
   permisos de administrador.
+- **Actualizaciones**: al iniciar y cada 12 horas comprueba en GitHub si hay una
+  versión nueva; si la hay, una notificación (y una opción del menú) abre la
+  página para descargarla. Se desactiva con *Buscar actualizaciones*.
 
 ## License
 
