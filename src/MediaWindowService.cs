@@ -27,6 +27,8 @@ namespace JWFixMonitor
         private volatile bool _stopping;
         private volatile bool _forcePlace;
         private volatile bool _covered;       // in TV c'è un'altra finestra
+        private DateTime _lastRaise = DateTime.MinValue;
+        private IntPtr _lastAbove;
         private long _tracked;               // HWND della finestra media già convertita
         private IntPtr _trackedCore;
         private bool _disabledByUs;
@@ -195,7 +197,7 @@ namespace JWFixMonitor
                     }
                 }
 
-                Log.Write("Finestra media trovata e pronta");
+                Log.Write($"Finestra media trovata e pronta (titolo \"{Native.TitleOf(frame)}\")");
                 _trackedCore = core;
                 _announced = false;
                 _forcePlace = true; // applica sempre bordo e ritaglio alla finestra nuova
@@ -244,7 +246,7 @@ namespace JWFixMonitor
                 }
 
                 var c = Native.FindWindowEx(h, IntPtr.Zero, "Windows.UI.Core.CoreWindow", null);
-                if (c != IntPtr.Zero && IsJwlProcess(c))
+                if (c != IntPtr.Zero && IsJwlProcess(c) && !IsJwlMainWindow(h))
                 {
                     frame = h;
                     core = c;
@@ -254,6 +256,42 @@ namespace JWFixMonitor
 
             frame = core = IntPtr.Zero;
             return false;
+        }
+
+        private static readonly HashSet<IntPtr> KnownMainWindows = new HashSet<IntPtr>();
+
+        /// <summary>
+        /// La finestra principale di JW a schermo intero è anch'essa "sempre in primo piano":
+        /// la riconosco dal menu laterale (navigation_home, …), che la finestra media non ha.
+        /// Gli identificativi non dipendono dalla lingua.
+        /// </summary>
+        private static bool IsJwlMainWindow(IntPtr frame)
+        {
+            KnownMainWindows.RemoveWhere(h => !Native.IsWindow(h));
+            if (KnownMainWindows.Contains(frame))
+            {
+                return true;
+            }
+
+            try
+            {
+                var nav = new OrCondition(
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "navigation_home"),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "navigation_bible"),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "navigation_library"));
+                if (AutomationElement.FromHandle(frame).FindFirst(TreeScope.Descendants, nav) == null)
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                return false; // interfaccia non leggibile: la tratto come prima
+            }
+
+            KnownMainWindows.Add(frame);
+            Log.Write("La finestra principale di JW Library è a schermo intero: non è la finestra media, non la tocco");
+            return true;
         }
 
         private static bool IsJwlProcess(IntPtr hwnd)
@@ -421,6 +459,7 @@ namespace JWFixMonitor
 
             if (!force && IsPlaced(frame, target, s))
             {
+                StayOnTop(frame, target, s);
                 SetStatus(L.F("MediaOn", target.Label));
                 return;
             }
@@ -434,6 +473,12 @@ namespace JWFixMonitor
             if (Native.IsIconic(frame))
             {
                 Native.ShowWindow(frame, Native.SW_RESTORE);
+            }
+            else if (Native.IsZoomed(frame))
+            {
+                // ingrandita: Windows la tiene sopra la barra delle applicazioni e non
+                // la lascia coprire tutto lo schermo. La riporto normale, senza fuoco
+                Native.ShowWindow(frame, Native.SW_SHOWNOACTIVATE);
             }
 
             Native.SetBorderless(frame, true);
@@ -479,6 +524,7 @@ namespace JWFixMonitor
                       (placed ? "OK" : $"non precisa, finestra {Native.VisibleFrame(frame)}"));
 
             SetStatus(placed ? L.F("MediaOn", target.Label) : L.T("NotPrecise"));
+            StayOnTop(frame, target, s);
 
             if (placed && !_announced && s.Notifications)
             {
@@ -505,6 +551,36 @@ namespace JWFixMonitor
                    Native.IsTopMost(frame) == s.TopMost &&
                    !Native.IsIconic(frame) &&
                    (!checkEnabled || !Native.IsWindowEnabled(frame));
+        }
+
+        /// <summary>
+        /// Un'altra finestra "sempre in primo piano" sopra la finestra media sulla TV
+        /// (es. il bordo verde di Zoom durante la condivisione): rimetto JW in cima.
+        /// Prima, a schermo intero UWP, JW stava sopra a tutto da sola.
+        /// </summary>
+        private void StayOnTop(IntPtr frame, MonitorDesc target, Settings s)
+        {
+            if (!s.TopMost || DateTime.UtcNow - _lastRaise < TimeSpan.FromSeconds(1))
+            {
+                return; // al massimo una volta al secondo: niente gara con chi si rimette sopra
+            }
+
+            var above = Native.WindowAbove(frame, target.Bounds);
+            if (above == IntPtr.Zero)
+            {
+                return;
+            }
+
+            _lastRaise = DateTime.UtcNow;
+            if (above != _lastAbove)
+            {
+                _lastAbove = above;
+                Log.Write($"Sopra la finestra media sulla TV c'era \"{Native.TitleOf(above)}\" " +
+                          $"({Native.ClassOf(above)}, {Native.ProcessNameOf(above)}): rimetto JW in cima");
+            }
+
+            Native.SetWindowPos(frame, Native.HWND_TOPMOST, 0, 0, 0, 0,
+                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
         }
 
         private bool AllowPlacement()
