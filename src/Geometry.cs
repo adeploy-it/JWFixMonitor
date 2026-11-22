@@ -130,6 +130,11 @@ namespace JWFixMonitor
             return true;
         }
 
+        /// <summary>I due rettangoli hanno un'area in comune (toccarsi sul bordo non basta).</summary>
+        public static bool Intersects(Box a, Box b) =>
+            !a.IsEmpty && !b.IsEmpty &&
+            a.Left < b.Right && b.Left < a.Right && a.Top < b.Bottom && b.Top < a.Bottom;
+
         /// <summary>Rettangolo allargato di n pixel per lato.</summary>
         public static Box Grow(Box b, int n) => new Box(b.Left - n, b.Top - n, b.Right + n, b.Bottom + n);
 

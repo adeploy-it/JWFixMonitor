@@ -10,6 +10,7 @@ namespace JWFixMonitor
     {
         public const int SW_SHOWNORMAL = 1;
         public const int SW_MAXIMIZE = 3;
+        public const int SW_SHOWNOACTIVATE = 4;
         public const uint EVENT_OBJECT_HIDE = 0x8003;
         public const int WS_EX_TOOLWINDOW = 0x00000080;
         public const int WS_EX_APPWINDOW = 0x00040000;
@@ -147,6 +148,32 @@ namespace JWFixMonitor
             var ext = extended ? KEYEVENTF_EXTENDEDKEY : 0;
             keybd_event(vk, 0, ext, IntPtr.Zero);
             keybd_event(vk, 0, ext | KEYEVENTF_KEYUP, IntPtr.Zero);
+        }
+
+        private const uint GW_HWNDPREV = 3;
+
+        /// <summary>
+        /// Prima finestra visibile che sta sopra hwnd (ordine z) e copre almeno in parte area:
+        /// es. il bordo verde che Zoom disegna sullo schermo condiviso. Zero se nessuna.
+        /// </summary>
+        public static IntPtr WindowAbove(IntPtr hwnd, Box area)
+        {
+            var me = (uint)Process.GetCurrentProcess().Id;
+            for (var h = GetWindow(hwnd, GW_HWNDPREV); h != IntPtr.Zero; h = GetWindow(h, GW_HWNDPREV))
+            {
+                if (!IsWindowVisible(h) || IsIconic(h) || IsCloaked(h) || ProcessIdOf(h) == me)
+                {
+                    continue;
+                }
+
+                var r = WindowRect(h);
+                if (r != null && Geometry.Intersects(r.Value, area))
+                {
+                    return h;
+                }
+            }
+
+            return IntPtr.Zero;
         }
 
         public static WINDOWPLACEMENT? PlacementOf(IntPtr hwnd)
