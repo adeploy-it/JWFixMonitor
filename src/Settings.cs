@@ -10,6 +10,7 @@ namespace JWFixMonitor
         public bool Enabled = true;
         public bool TopMost = true;
         public bool Notifications = true;
+        public bool CheckUpdates = true;
         public string TargetDevice = "";   // vuoto (e niente percorso/modello) = automatico
         public string TargetPath = "";     // percorso del monitor scelto
         public string TargetModel = "";    // modello del monitor scelto
@@ -69,6 +70,7 @@ namespace JWFixMonitor
             sb.AppendLine("Enabled=" + Enabled);
             sb.AppendLine("TopMost=" + TopMost);
             sb.AppendLine("Notifications=" + Notifications);
+            sb.AppendLine("CheckUpdates=" + CheckUpdates);
             sb.AppendLine("TargetDevice=" + TargetDevice);
             sb.AppendLine("TargetPath=" + TargetPath);
             sb.AppendLine("TargetModel=" + TargetModel);
@@ -99,6 +101,7 @@ namespace JWFixMonitor
             s.Enabled = b("Enabled", s.Enabled);
             s.TopMost = b("TopMost", s.TopMost);
             s.Notifications = b("Notifications", s.Notifications);
+            s.CheckUpdates = b("CheckUpdates", s.CheckUpdates);
             string str(string key) => values.TryGetValue(key, out var v) ? v : "";
             s.TargetDevice = str("TargetDevice");
             s.TargetPath = str("TargetPath");

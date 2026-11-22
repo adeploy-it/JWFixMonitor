@@ -48,6 +48,9 @@ namespace JWFixMonitor
             ["ReopenMedia"] = new[] { "Riapri finestra media", "Reopen media window", "Reabrir ventana multimedia" },
             ["WhatsOnTv"] = new[] { "Cosa va in TV… (clic sull'icona)", "What's on TV… (click the icon)", "Qué se ve en la TV… (clic en el icono)" },
             ["BackToJwMenu"] = new[] { "Torna a JW in TV (Ctrl+Alt+J)", "Back to JW on TV (Ctrl+Alt+J)", "Volver a JW en la TV (Ctrl+Alt+J)" },
+            ["CheckUpdates"] = new[] { "Controlla aggiornamenti", "Check for updates", "Buscar actualizaciones" },
+            ["CheckUpdatesNow"] = new[] { "Cerca aggiornamenti adesso", "Check for updates now", "Buscar actualizaciones ahora" },
+            ["DownloadUpdate"] = new[] { "⬇ Scarica la versione {0}", "⬇ Download version {0}", "⬇ Descargar la versión {0}" },
             ["OpenLog"] = new[] { "Apri il registro (log)", "Open log", "Abrir registro (log)" },
             ["Exit"] = new[] { "Esci", "Exit", "Salir" },
             ["AutoSecondary"] = new[] { "Automatico (schermo secondario)", "Automatic (secondary screen)", "Automático (pantalla secundaria)" },
@@ -78,6 +81,19 @@ namespace JWFixMonitor
                 "Se cerró la ventana de la TV: vuelve JW Library."
             },
             ["MediaPlaced"] = new[] { "Finestra media sistemata su {0}", "Media window placed on {0}", "Ventana multimedia colocada en {0}" },
+            ["UpdateAvailable"] = new[]
+            {
+                "È disponibile JWFixMonitor {0} (hai la {1}). Clicca per scaricarla.",
+                "JWFixMonitor {0} is available (you have {1}). Click to download it.",
+                "JWFixMonitor {0} está disponible (tienes la {1}). Haz clic para descargarla."
+            },
+            ["UpToDate"] = new[] { "JWFixMonitor è aggiornato (versione {0}).", "JWFixMonitor is up to date (version {0}).", "JWFixMonitor está actualizado (versión {0})." },
+            ["UpdateCheckFailed"] = new[]
+            {
+                "Non riesco a controllare gli aggiornamenti: {0}",
+                "Couldn't check for updates: {0}",
+                "No se pudieron buscar actualizaciones: {0}"
+            },
             ["LogOpenFailed"] = new[] { "Non riesco ad aprire il registro:\n{0}", "Couldn't open the log:\n{0}", "No se pudo abrir el registro:\n{0}" },
             ["AlreadyRunning"] = new[]
             {
